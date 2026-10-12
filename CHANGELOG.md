@@ -265,3 +265,13 @@
 ## 0.6.0-dev.55 (2026-10-04)
 
 - Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.
+
+## 0.6.0-dev.58 (2026-10-12)
+
+- Fix local album artwork bleeding across releases. Files sitting loose in an artist folder (or in a compilation folder) were pooled into one source entry, so the first file's embedded picture became the cover of every album derived from that folder. In a 666-track library this made 41 unrelated albums display the same image. Full cause, evidence and fix: [BUG-REPORT-album-artwork.md](BUG-REPORT-album-artwork.md).
+- Extract artwork per file whenever a folder's files do not share a single album tag, and let album grouping pick the image that belongs to each release. Folders whose files agree on the album tag keep the previous single-pass one-cover behaviour.
+- Only let a source that is itself titled like the album lend its artwork, so a same-titled release merged from another folder can no longer inherit an unrelated cover.
+- Invalidate cached per-file metadata when album grouping changed, so an existing index repairs itself on the next scan instead of keeping the pooled cover.
+- Add two regression tests: loose singles in an artist folder keep distinct covers before and after a rescan, and tracks sharing one album tag still share one cover.
+- Verification on a real 666-track library: 169 albums, 118 with artwork, 118 distinct images, 0 reused images (previously 41 albums shared one image). `check-music-library.mjs` passes 14/14.
+- Known pre-existing failure, not introduced by this change: `node scripts/check-music-scene.mjs` aborts with `TypeError: Cannot read properties of undefined (reading 'getImageData')` at `src/cover-atlas.ts:351`, because that check drives the canvas atlas without a browser canvas. It fails identically on the unmodified 0.6.0-dev.57 tree, so `npm run check:music` cannot complete in this environment.

@@ -288,6 +288,61 @@ test('folder covers override embedded art; removing a cover reveals cached or ne
   assert.deepEqual(await fs.readFile(store.artworkFile(album.id).path), embedded)
 })
 
+test('loose singles in an artist folder keep their own cover instead of the first file art', async (t) => {
+  // Each file is its own release: its album tag names it and its embedded art is unique.
+  const { root, store } = await fixture(t, {
+    metadataParser: async (file, options) => {
+      const name = path.parse(file).name
+      return {
+        common: {
+          album: name.split(' - ')[1] ?? name,
+          artist: '林子汐',
+          title: name,
+          picture: options.skipCovers ? [] : [{ format: 'image/png', type: 'Cover (front)', data: Buffer.from(`cover-of-${name}`) }],
+        },
+        format: {},
+      }
+    },
+  })
+  const artist = path.join(root, '林子汐')
+  await fs.mkdir(artist, { recursive: true })
+  const names = ['林子汐 - 甲.flac', '林子汐 - 乙.flac', '林子汐 - 丙.flac']
+  for (const name of names) await fs.writeFile(path.join(artist, name), Buffer.from(`audio-${name}`))
+
+  await store.scan()
+  const albums = store.snapshot().albums
+  assert.equal(albums.length, 3, 'each loose single is its own album')
+
+  const covers = albums.map((album) => store.artworkFile(album.id).path)
+  assert.equal(new Set(covers).size, 3, 'each loose single exposes its own artwork')
+  for (const album of albums) {
+    assert.deepEqual(await fs.readFile(store.artworkFile(album.id).path), Buffer.from(`cover-of-林子汐 - ${album.title}`), `${album.title} keeps its own cover`)
+  }
+
+  // Cached metadata must not restore the pooled cover on the next scan.
+  await store.scan()
+  const rescanned = store.snapshot().albums.map((album) => store.artworkFile(album.id).path)
+  assert.equal(new Set(rescanned).size, 3, 'a rescan keeps the distinct covers')
+})
+
+test('tracks sharing one album tag still share one cover after loose-single handling', async (t) => {
+  const embedded = Buffer.from('single-release-art')
+  const { root, store } = await fixture(t, {
+    metadataParser: async (_file, options) => ({
+      common: { album: '一张专辑', artist: '歌手', picture: options.skipCovers ? [] : [{ format: 'image/png', type: 'Cover (front)', data: embedded }] },
+      format: {},
+    }),
+  })
+  const folder = await fakeAlbum(root, '一张专辑', ['01.flac', '02.flac', '03.flac'])
+  assert.ok(folder)
+  await store.scan()
+  const albums = store.snapshot().albums
+  assert.equal(albums.length, 1)
+  assert.equal(albums[0].tracks.length, 3)
+  assert.deepEqual(await fs.readFile(store.artworkFile(albums[0].id).path), embedded)
+})
+
+
 test('manual genres survive rescans and online refresh; editing the rules needs no audio rewrite', async (t) => {
   const { root, store } = await fixture(t, { metadataParser: async () => ({ common: { genre: ['国语流行音乐'], album: 'Album', artist: 'Artist' }, format: {} }) })
   await fakeAlbum(root)

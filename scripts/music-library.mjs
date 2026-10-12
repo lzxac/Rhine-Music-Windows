@@ -148,7 +148,32 @@ async function walkAlbums(root) {
   return folders
 }
 
+// An artist folder or a compilation folder holds unrelated loose tracks, so it
+// is not one release. Splitting it by each file's own album tag is what stops
+// every track in it from being pooled under the first file's cover. The tags
+// come from the previous index, which is always available during a scan.
+function splitLooseSingles(root, entry, previousTracks) {
+  if (entry.singleFile || entry.tracks.length < 2 || path.dirname(entry.folder) !== root) return [entry]
+  const tags = new Set()
+  for (const file of entry.tracks) tags.add(normalizeAlbumName(previousTracks.get(pathKey(file))?._common?.album))
+  if (tags.size <= 1) return [entry]
+  return entry.tracks.map((file) => ({ folder: entry.folder, tracks: [file], singleFile: file, cover: undefined }))
+}
+
 const albumEntryId = (entry) => `source-${hash(entry.singleFile ?? entry.folder)}`
+// The album grouping rules determine what a source entry is, so changing them
+// invalidates previously cached per-file metadata: a track that used to be one
+// track of a folder album can now be a single that owns its own artwork.
+const LIBRARY_LAYOUT_VERSION = 2
+// Older indexes did not record which entry a cached track came from; derive the
+// folder entry it must have belonged to so an unchanged folder keeps its cache.
+// A file that is now its own entry never matches, which is what repairs caches
+// written while loose singles were pooled into their folder's album.
+function cachedEntryId(track) {
+  if (track?._entryId) return track._entryId
+  if (!track?._path) return undefined
+  return albumEntryId({ folder: path.dirname(track._path) })
+}
 const albumId = (name) => `album-${hash(`title:${normalizeAlbumName(name)}`)}`
 const firstString = (value) => Array.isArray(value) ? text(value[0]) : text(value)
 const numberOrUndefined = (value) => Number.isFinite(value) && value > 0 ? value : undefined
@@ -163,22 +188,43 @@ const fallbackAlbumTitle = (root, folder) => {
   return parts.at(-1) || path.basename(folder)
 }
 
+// A folder only stands for one release while its files agree on the album tag.
+// Artist-level folders hold unrelated loose tracks ("loose singles"), and a
+// compilation folder holds tracks from many releases; treating either as one
+// album would put every track under the first file's cover.
+function folderTagConflicts(albums) {
+  const tagsByFolder = new Map()
+  for (const album of albums) {
+    const key = album._sourceEntryId ?? album.id
+    if (!key) continue
+    const tags = tagsByFolder.get(key) ?? new Set()
+    for (const track of album.tracks) tags.add(normalizeAlbumName(track._common?.album))
+    tagsByFolder.set(key, tags)
+  }
+  const conflicts = new Set()
+  for (const [key, tags] of tagsByFolder) if (tags.size > 1) conflicts.add(key)
+  return conflicts
+}
+
 function combineAlbums(albums) {
   const groups = new Map()
+  const conflictingFolders = folderTagConflicts(albums)
   for (const album of albums) {
+    const folderIsOneRelease = !conflictingFolders.has(album._sourceEntryId ?? album.id)
     for (const track of album.tracks) {
       const tagged = text(track._common?.album)
       const sourceRoot = track._path && (album._roots ?? [album._root]).find((root) => root && pathIsWithin(root, track._path))
-      const singleFile = !!track._singleFile || (!tagged && sourceRoot && track._path && path.dirname(track._path) === sourceRoot)
+      const singleFile = !!track._singleFile || !folderIsOneRelease || (!tagged && sourceRoot && track._path && path.dirname(track._path) === sourceRoot)
       const fallbackTitle = text(track._albumFallback) || (singleFile ? track.title : album.title)
       const title = tagged || fallbackTitle || track.title || '未命名专辑'
       const key = normalizeAlbumName(title)
       const groupKey = singleFile && !tagged ? `single:${track.id}` : `album:${key}`
       let group = groups.get(groupKey)
       if (!group) {
-        group = { key, titles: [], tracks: [], sources: new Set(), sourceEntries: new Map(), isSingle: groupKey.startsWith('single:') }
+        group = { key, titles: [], tracks: [], sources: new Set(), sourceEntries: new Map(), ownCovers: new Set(), isSingle: groupKey.startsWith('single:') }
         groups.set(groupKey, group)
       }
+      if (track._ownCover?.version) group.ownCovers.add(track._ownCover.version)
       group.titles.push(title)
       group.tracks.push(track)
       group.sources.add(album)
@@ -200,8 +246,25 @@ function combineAlbums(albums) {
     const id = group.isSingle ? `single-${hash(tracks[0]?.id ?? title)}` : albumId(title)
     const folders = unique(sources.map((source) => source.folder).filter(Boolean))
     const roots = unique(tracks.map((track) => track._path && sources.flatMap((source) => source._roots ?? [source._root]).find((root) => root && pathIsWithin(root, track._path))).filter(Boolean))
-    const coverSources = sources.filter((source) => source._cover && !source.offline).concat(sources.filter((source) => source._cover && source.offline))
+    // Only a source that is itself titled like this album may lend its artwork.
+    // A same-titled release merged from another folder must never inherit the
+    // cover of an unrelated release that happened to sort first.
+    const titledLikeGroup = sources.filter((source) => normalizeAlbumName(source.title) === group.key)
+    const coverCandidates = titledLikeGroup.length ? titledLikeGroup : sources
+    const coverSources = coverCandidates.filter((source) => source._cover && !source.offline).concat(coverCandidates.filter((source) => source._cover && source.offline))
     const coverSource = coverSources.find((source) => !source._cover.embedded && source._coverRoot && roots.includes(source._coverRoot)) ?? coverSources[0]
+    // Tracks from a loose-single or compilation folder each carry their own
+    // artwork. When all of them agree on one image, that image is this album's
+    // cover; when they disagree, the common pooled cover is unrelated and the
+    // title-matched sources must decide instead.
+    const ownCovers = [...group.ownCovers]
+    const ownCover = ownCovers.length === 1 ? tracks.map((track) => track._ownCover).find((entry) => entry?.version === ownCovers[0]) : undefined
+    // When one release genuinely carries mixed artwork, fall back to its own
+    // first track rather than to a folder-level image owned by a different
+    // release that happens to share the same title.
+    const firstOwnCover = tracks.map((track) => track._ownCover).find(Boolean)
+    const resolvedCover = ownCover ?? coverSource?._cover ?? firstOwnCover
+    const resolvedCoverRoot = ownCover ? (ownCover.embedded ? undefined : roots.find((root) => pathIsWithin(root, ownCover.path))) : (coverSource?._coverRoot ?? coverSource?._root)
     const localGenres = unique(sources.flatMap((album) => album._localGenres ?? []))
     const sameTitleSources = sources.filter((album) => normalizeAlbumName(album.title) === group.key)
     const richest = [...sameTitleSources].sort((a, b) => (b.online?.checkedAt ?? '').localeCompare(a.online?.checkedAt ?? ''))[0]
@@ -225,7 +288,7 @@ function combineAlbums(albums) {
       offline: mergedTracks.every((track) => !!track.offline),
       producers, online: online ?? { status: enrichmentSafe ? 'unqueried' : 'uncertain' },
       _root: roots[0] ?? primary._root, _roots: roots,
-      _cover: coverSource?._cover, _coverRoot: coverSource?._coverRoot ?? coverSource?._root,
+      _cover: resolvedCover, _coverRoot: resolvedCoverRoot,
       _localGenres: localGenres,
       _onlineGenres: enrichmentSafe ? unique(sources.flatMap((album) => album._onlineGenres ?? [])) : [],
       _enrichmentSafe: enrichmentSafe,
@@ -411,9 +474,11 @@ export class MusicLibraryStore {
             // failures must never masquerade as deletions.
             const folders = await walkAlbums(root)
             for (const folder of folders) {
-              const cachedTracks = new Map(folder.tracks.map((file) => [pathKey(file), previousTracks.get(pathKey(file))]).filter(([, track]) => track))
-              const cachedAlbums = unique(folder.tracks.map((file) => previousAlbumByTrack.get(pathKey(file))))
-              rootSourceAlbums.push(await this.readAlbum(root, folder, { tracks: cachedTracks, previousAlbum: cachedAlbums[0] }))
+              for (const entry of splitLooseSingles(root, folder, previousTracks)) {
+                const cachedTracks = new Map(entry.tracks.map((file) => [pathKey(file), previousTracks.get(pathKey(file))]).filter(([, track]) => track))
+                const cachedAlbums = unique(entry.tracks.map((file) => previousAlbumByTrack.get(pathKey(file))))
+                rootSourceAlbums.push(await this.readAlbum(root, entry, { tracks: cachedTracks, previousAlbum: cachedAlbums[0] }))
+              }
             }
             sourceAlbums.push(...rootSourceAlbums)
             nextRoots.push({ path: root, status: 'online' })
@@ -468,6 +533,24 @@ export class MusicLibraryStore {
     return this.scanPromise
   }
 
+  // A folder may only share one embedded cover while its files belong to one
+  // release. Everything else is a loose-single or compilation folder where each
+  // file owns its artwork, otherwise the first file's cover would spread to all.
+  // A cold scan has no previously read tags, so it reads each file's artwork and
+  // lets the album grouping pick the right image.
+  oneReleaseEntry(entry, previous) {
+    if (entry.cover || entry.singleFile || entry.tracks.length < 2) return true
+    let known = 0
+    const tags = new Set()
+    for (const file of entry.tracks) {
+      const cached = previous?.tracks.get(pathKey(file))
+      if (!cached) continue
+      known += 1
+      tags.add(normalizeAlbumName(cached._common?.album))
+    }
+    return known === entry.tracks.length && tags.size <= 1
+  }
+
   async readAlbum(root, entry, previous) {
     const id = albumEntryId(entry)
     let fileCover
@@ -476,24 +559,32 @@ export class MusicLibraryStore {
       fileCover = { path: entry.cover, mime: imageMime(entry.cover), version: hash(`${entry.cover}:${stat.size}:${stat.mtimeMs}`), embedded: false }
     }
     // A single owns its embedded artwork; a matching image is only a fallback.
+    const oneRelease = this.oneReleaseEntry(entry, previous)
     let cover = entry.singleFile ? undefined : fileCover
     const tracks = []
     for (const file of entry.tracks) {
       const stat = await fs.stat(file)
       const fingerprint = `${stat.size}:${stat.mtimeMs}`
       const old = previous?.tracks.get(pathKey(file))
-      if (old?._fingerprint === fingerprint && old._metadataVersion === METADATA_VERSION && (cover || old._coverResolved === true)) {
-        tracks.push({ ...old, albumId: id, offline: false })
+      // Cached metadata is only reusable while the file still belongs to the same
+      // source entry. A track that used to be one track of a folder album and is
+      // now its own single must extract its own artwork instead of inheriting the
+      // cached cover of the entry it was previously pooled into.
+      const sameEntry = cachedEntryId(old, root) === id && (old?._layoutVersion ?? 0) >= LIBRARY_LAYOUT_VERSION
+      if (sameEntry && old?._fingerprint === fingerprint && old._metadataVersion === METADATA_VERSION && (cover || old._coverResolved === true)) {
+        const reused = { ...old, albumId: id, offline: false }
         if (!cover && old._embeddedCover) cover = old._embeddedCover
+        if (!oneRelease) reused._ownCover = old._embeddedCover ?? null
+        tracks.push(reused)
         continue
       }
       let metadata
       let metadataError
-      try { metadata = await this.parseFile(file, { duration: true, skipCovers: !!cover }) }
+      try { metadata = await this.parseFile(file, { duration: true, skipCovers: oneRelease && !!cover }) }
       catch (error) { metadataError = error.message; metadata = { common: {}, format: {} } }
       const common = metadata.common ?? {}
       let embedded = null
-      if (!cover) {
+      if (!cover || !oneRelease) {
         const picture = common.picture?.find((image) => /front/i.test(image.type ?? '')) ?? common.picture?.[0]
         if (picture?.data?.length && picture.data.length < 30 * 1024 * 1024) {
           const mime = picture.format === 'image/jpg' ? 'image/jpeg' : picture.format
@@ -504,7 +595,7 @@ export class MusicLibraryStore {
             await fs.mkdir(path.dirname(target), { recursive: true })
             if (!(await exists(target))) await fs.writeFile(target, picture.data, { mode: 0o600 })
             embedded = { path: target, mime, version, embedded: true }
-            cover = embedded
+            if (oneRelease && !cover) cover = embedded
           }
         }
       }
@@ -526,6 +617,7 @@ export class MusicLibraryStore {
         browserPlayable: BROWSER_EXTENSIONS.has(extension), audioUrl: `/api/audio/${trackId}`,
         relativePath: path.relative(root, file),
         _path: file, _fingerprint: fingerprint, _metadataVersion: METADATA_VERSION,
+        _entryId: id, _layoutVersion: LIBRARY_LAYOUT_VERSION,
         _singleFile: !!entry.singleFile, _albumFallback: entry.singleFile ? path.parse(file).name : fallbackAlbumTitle(root, entry.folder),
         _coverResolved: !entry.cover || !!entry.singleFile, offline: false,
         _common: {
@@ -537,6 +629,7 @@ export class MusicLibraryStore {
           ...(metadataError ? { metadataError } : {}),
         },
         _embeddedCover: cover && !embedded ? undefined : embedded,
+        _ownCover: oneRelease ? undefined : embedded,
       })
     }
     cover ??= fileCover
