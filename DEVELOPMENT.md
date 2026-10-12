@@ -137,74 +137,66 @@ git merge main
 
 ---
 
-## 9. 交接说明（2026-10-13，给下一个会话的我）
+## 9. 交接说明（2026-10-13 第二版，给下一个会话的我）
 
-> 这一节是**给 AI 助手看的**，不是给你看的。你不需要读。但如果你换了工具、或我这边失去了上下文，打开这里就能接上。
+> 这一节是**给 AI 助手看的**。用户不需要读。
 
-### 当前进度
+### 一句话状态
 
-**分支**：`rhine-lab`。**已提交**到 `6800ee1`（歌词面板改造 + 首轮修复）。
+**右侧常驻滚动歌词面板已经完工并被用户逐项确认。** 下一步是**优化显示效果**（用户原话："现在我们要优化一下显示效果了"）。
 
-**仓库里有 3 个文件未提交**，是歌词 bug 的**第二轮修复尝试**，尚未验证：
+### 已完成并确认的效果
 
-| 文件 | 未提交改动是什么 |
+用户逐条验收通过的：
+
+| 功能 | 状态 |
 |---|---|
-| `src/music-app.ts` | 把居中逻辑从「自己算 scrollTop + 缓动」改成**浏览器原生** `line.scrollIntoView({ block: "center", behavior: "smooth" })`；**并包含临时诊断代码**（`reportLyricDiagnostics`、`lyricDiagnostics`，都有 `TEMPORARY` 注释） |
-| `src/music.css` | 歌词列表改用**固定留白** `padding-block: clamp(140px, 30vh, 340px)`（替换掉之前会崩的运行时测量方案） |
-| `scripts/music-server.mjs` | 加了临时端点 `POST /api/diagnostics/lyrics`，把页面测量结果追加写入 `work/lyric-diagnostics.log` |
+| 播放时右侧出现滚动歌词，当前句精确居中 | ✅ 实测偏离 1px |
+| 平滑滚动（不再是"跳一行再飘回来"） | ✅ |
+| 播放中手动滚动 → 停手 4 秒自动回到当前句 | ✅ |
+| 点击某行歌词跳转到该时间 | ✅ |
+| 收起 → 紧凑卡片，状态持久化；展开 → 完整面板 | ✅ |
+| 展开与收起是同一张卡片（相同边框/圆角/阴影/宽度） | ✅ |
+| 面板不遮挡「上一张/下一张」按钮 | ✅ 按钮在面板顶边之上 |
+| 专辑列的文字不再消失（ALBUM CREDITS / 补充在线资料 / 卡片标题） | ✅ |
+| 面板顶边对齐专辑大标题、底边停在歌单最后一条横线 | ✅ |
 
-### 歌词 bug 的已知事实（重要，别重复排查）
+### 关键设计约束（改动前必读）
 
-**症状**：播放带歌词的歌时，右侧面板是**白纸一片**（或歌词平铺、不滚动、当前句不居中）。
+1. **面板是 `.music-detail` 的兄弟节点，不是子节点。** CSS 自定义属性不能跨兄弟继承——这个坑已经踩过一次（`--detail-content-top`），导致面板高度失控、看起来是白纸。**任何新变量必须声明在 `#stage` 上。**
+2. **几何一律实测，不要写死。** `syncLyricsPanelAlignment()` 在 `renderDetail()`、切换歌单/专辑介绍页签、窗口 resize 时都会重算：`--lyrics-top`（对齐大标题）、`--lyrics-bottom`（停在歌单末行底边）、`--lyrics-collapsed-offset`（固定 0，因为 `top` 已包含标题偏移）。
+3. **不要在 `.lyric-list` 上加 `scroll-behavior: smooth`**，也不要给活动行加 `font-size` 过渡——两者都已证实会破坏滚动动画。
+4. **不要用 `visibility: hidden` 隐藏专辑列**，那会连带隐藏封面标题和制作人员区块。
 
-**已用真实数据定位到的根因**（来自诊断上报）：
+### 版本与提交
 
-```
-panel:  y=-1705  h=2611          ← 面板被撑到 2611px，比窗口高得多
-list:   clientHeight=2535  scrollHeight=2535  scrollTop=0
-```
+- 分支 `rhine-lab`，最新提交 `0cf34e1`（歌词面板完工 + 移除诊断脚手架）
+- 版本号 `0.7.0-dev.2`（**未递增**，因为整个过程属于同一个未发布功能；CHANGELOG 里记录了各轮修复与真因）
+- **未推送任何东西到 GitHub**（用户要求）
+- 临时诊断代码**已全部移除**（`/api/diagnostics/lyrics` 路由、`reportLyricDiagnostics`、`lyricDiagnostics`、scroll 上报）
 
-- **列表的 `clientHeight` 等于 `scrollHeight`** → 没有形成滚动视口 → `scrollTop` 恒为 0 → **无法滚动居中**
-- 当时面板上下留白各 287px（按容器高度算的），数值本身合理
-- **所以问题不是居中公式，而是面板/列表没有被窗口高度约束住**
+### 恢复验证环境
 
-**已修复但仍需确认**：把留白改成固定 `clamp()`、居中交给浏览器原生 `scrollIntoView`。**这次改动尚未经过用户目视验证。**
-
-**已排除**：留白数值算错、`scrollIntoView` 多祖先滚动、`lyricCenterOffset` 公式（有 6 项测试且 672 组合等价验证）。
-
-### 恢复验证环境的步骤
-
-1. 复制用户曲库索引到验证目录（**不要动 `%LOCALAPPDATA%\Rhine Music\music-data-v3`**）：
-   ```powershell
-   $live = "$env:LOCALAPPDATA\Rhine Music\music-data-v3"
-   $test = 'B:\RHINE LAB_DEV\_verify\music-data'
-   Copy-Item "$live\config.json","$live\genre-rules.json","$live\library-index.json","$live\playlists.json" -Destination $test -Force
-   Copy-Item "$live\artwork" -Destination "$test\artwork" -Recurse -Force
-   ```
-2. 构建并启动服务（**需要代理**，见下）：
+1. 代理必须开着：`127.0.0.1:10810`（Whale）。**代理关闭时任何 GitHub 结论都不可信**（曾因此误判仓库被删除）。
+2. 构建并启动本地服务：
    ```powershell
    npm run build
    $env:MUSIC_DATA_DIR = 'B:\RHINE LAB_DEV\_verify\music-data'
    $env:PORT = '8099'
    node scripts/music-server.mjs
    ```
-3. 测试歌曲：**`林子汐 - NUNA3.0`**（用户曲库里**唯一**有 `.lrc` 的一首，49 行）
-4. 让用户在 http://127.0.0.1:8099/ 播放它，页面会**自动上报**面板测量数据到 `work/lyric-diagnostics.log`
-5. 用 `B:\RHINE LAB_DEV\_verify\read-diagnostics.mjs` 解析该日志
+3. 测试歌曲：**`林子汐 - NUNA3.0`**（用户曲库里**唯一**有 `.lrc` 的一首，49 行）。
+   验证目录 `B:\RHINE LAB_DEV\_verify\music-data` 已存在，是用户真实索引的副本。
 
-### 环境注意事项
+### 工作方式（用户明确要求过）
 
-- **代理必须开着**：`127.0.0.1:10810`（Whale）。它中途关闭过一次，导致 GitHub 访问出现**假 404**，我曾据此错误判断"仓库不存在"。**代理关闭时任何 GitHub 结论都不可信。**
-- `github.com` **直连超时**，`api.github.com` 直连可通——**不要用单一通道的失败推断仓库不存在**
-- 验证脚本（含 `verify-objective.mjs`、`verify-panel.mjs`、`verify-scroll.mjs`、`read-diagnostics.mjs`）都放在仓库**之外**的 `B:\RHINE LAB_DEV\_verify\`
+- **基于源码，不基于截图。** 截图只用来确认"看到了什么现象"；参数、位置、对齐一律去源码查，或让页面实测上报。
+- **用户只付得起有限的 token**，所以：回复要短、动代码前把相关源码规则一次读完、配对关系（如"展开=列顶+30、收起=0"）先想清楚再写。
+- 用户是产品角色，不懂代码。方案要讲清取舍，设计选择由他定。
 
-### 不要在未询问用户的情况下做的事
+### 下一步
 
-- 不要绕过 DSH 插件的版本兼容检查
-- 不要推送任何东西到 GitHub（用户要求先不推）
-- 不要扩大改动范围：背景虚化、逐字歌词、专辑信息收纳都**已明确留给后续单独迭代**
+用户要**优化显示效果**。尚未讨论具体内容。可能的方向（等他提）：
+字号/行距、非当前行的透明度衰减、边缘渐隐强度、滚动缓动曲线、配色。
 
-### 诊断代码的清理
-
-那三处 `TEMPORARY` 诊断代码是**临时脚手架**。等歌词 bug 确认修好后**应当移除**：`reportLyricDiagnostics`、`lyricDiagnostics`、`lyricDiagnostics` 在 `Object.assign(window, ...)` 里的条目，以及 `scripts/music-server.mjs` 的 `/api/diagnostics/lyrics` 路由。
-
+**之前约定留到后续的**：专辑信息自动收纳、背景虚化、逐字（卡拉OK）歌词。
