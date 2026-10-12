@@ -55,10 +55,10 @@ import { MusicBoot } from "./music-boot";
 import { viewportLayout } from "./viewport-layout";
 import { probeGpuCapability } from "./gpu-capability";
 import { BUILD_VERSION } from "./build-version";
-import { activeLyricIndex, parseLrc, type LyricLine } from "./lyrics";
+import { activeLyricIndex, lyricCentreOffset, parseLrc, type LyricLine } from "./lyrics";
 
 type Theme = "day" | "dusk" | "night";
-type Panel = "library" | "search" | "settings" | "playlists" | "queue" | "lyrics" | null;
+type Panel = "library" | "search" | "settings" | "playlists" | "queue" | null;
 document.title = `Rhine Music ${BUILD_VERSION}`;
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) =>
   document.querySelector<T>(selector)!;
@@ -103,6 +103,7 @@ const preferences = {
     sound: true,
     soundVolume: 0.22,
     renderQuality: undefined as RenderQuality | undefined,
+    lyricsCollapsed: false,
   },
   ...read<
     Partial<{
@@ -117,6 +118,7 @@ const preferences = {
       sound: boolean;
       soundVolume: number;
       renderQuality: RenderQuality;
+      lyricsCollapsed: boolean;
     }>
   >("rhine-music-preferences", {}),
 };
@@ -199,8 +201,10 @@ let lyricTrackId: string | null = null;
 let lyricRequestVersion = 0;
 let lyricLines: LyricLine[] = [];
 let lyricStateText = "尚未载入歌词。";
-let activeRenderedLyric = -2;
-let activeDockLyric = -2;
+// -2 is the "force a repaint after a track change" sentinel: the first line of a
+// new track must be applied even when its index happens to equal the old one.
+let activeLyric = -2;
+let lyricScrollFrame = 0;
 let lyricClockFrame = 0;
 const player = new MusicPlayer({
   volume: preferences.volume,
@@ -234,15 +238,18 @@ stage.innerHTML = `
       <button data-action="queue" aria-label="播放队列">${icons.queue}<span>队列</span><small id="queue-count">0</small></button>
       <div class="theme-switch" role="group" aria-label="主题">${(["day", "dusk", "night"] as Theme[]).map((t) => `<button data-theme="${t}" title="${themeNames[t]}主题" aria-label="${themeNames[t]}主题" aria-pressed="${preferences.theme === t}"><i class="theme-dot ${t}"></i><span>${themeNames[t]}</span></button>`).join("")}</div>
       <button data-action="settings" class="icon-button" aria-label="播放与画质设置">${icons.settings}</button>
-      <div class="minimal-transport" role="group" aria-label="音乐播放"><button type="button" data-action="locate-playing" id="transport-track" class="transport-track" aria-label="定位当前歌曲" aria-hidden="true" disabled><span id="transport-track-label"></span></button><span id="transport-lyric-status" class="transport-lyric-status" role="status" aria-live="polite" hidden></span><button type="button" id="transport-lyrics-open" class="transport-lyrics-open" data-action="lyrics-panel" hidden>歌词 ↗</button><button data-action="play-pause" id="play-pause" aria-label="播放" aria-pressed="false"><span class="transport-glyph transport-play" aria-hidden="true">${icons.play}</span><span class="transport-glyph transport-pause" aria-hidden="true">${icons.pause}</span></button><button data-action="stop" id="stop-playback" aria-label="停止">${icons.stop}</button></div>
+      <div class="minimal-transport" role="group" aria-label="音乐播放"><button type="button" data-action="locate-playing" id="transport-track" class="transport-track" aria-label="定位当前歌曲" aria-hidden="true" disabled><span id="transport-track-label"></span></button><span id="transport-lyric-status" class="transport-lyric-status" role="status" aria-live="polite" hidden></span><button type="button" id="transport-lyrics-open" class="transport-lyrics-open" data-action="lyrics-panel" hidden>歌词</button><button data-action="play-pause" id="play-pause" aria-label="播放" aria-pressed="false"><span class="transport-glyph transport-play" aria-hidden="true">${icons.play}</span><span class="transport-glyph transport-pause" aria-hidden="true">${icons.pause}</span></button><button data-action="stop" id="stop-playback" aria-label="停止">${icons.stop}</button></div>
     </nav>
   </header>
-  <aside id="music-lyric-dock" class="music-lyric-dock" aria-label="实时同步歌词" hidden>
-    <div class="music-lyric-copy">
-      <strong id="music-lyric-current" class="music-lyric-current" aria-live="polite"></strong>
-      <span id="music-lyric-next" class="music-lyric-next" aria-hidden="true"></span>
+  <aside id="music-lyrics-panel" class="music-lyrics-panel" aria-label="同步滚动歌词" hidden>
+    <div class="lyrics-band">
+      <button type="button" id="lyrics-toggle" class="lyrics-toggle" data-action="lyrics-toggle" aria-expanded="true" aria-controls="lyrics-panel-body" aria-label="收起歌词"><span class="lyrics-toggle-glyph" aria-hidden="true">›</span><span id="lyrics-toggle-label">收起歌词</span></button>
+      <p id="lyrics-panel-status" class="lyrics-panel-status" role="status" aria-live="polite"></p>
+      <p id="lyrics-panel-current" class="lyrics-panel-current" title="展开歌词">—</p>
     </div>
-    <button type="button" data-action="lyrics-panel" aria-label="打开完整歌词">完整歌词 ↗</button>
+    <div id="lyrics-panel-body" class="lyrics-panel-body">
+      <div id="lyric-list" class="lyric-list" tabindex="0" role="group" aria-label="歌词，点击一行可跳转到该时间"></div>
+    </div>
   </aside>
   <div id="library-status" class="library-status"><i></i><span>正在读取本地音乐索引</span></div>
   <section id="music-browse" class="music-browse" aria-label="专辑浏览">
@@ -270,6 +277,18 @@ stage.innerHTML = `
   <div id="music-panel-root"></div><div id="music-toast" role="status" aria-live="polite"></div>
   <div id="music-loading"><span class="loading-orbit"></span><strong>OPENING THE ARCHIVE</strong><small>正在载入三维专辑架</small></div>
 `;
+// Apply the stored collapsed state once, before the first paint of the panel.
+$("#lyrics-panel-body").hidden = !!preferences.lyricsCollapsed;
+stage.dataset.lyricsCollapsed = String(!!preferences.lyricsCollapsed);
+{
+  const toggle = document.querySelector<HTMLButtonElement>("#lyrics-toggle");
+  const label = document.querySelector<HTMLElement>("#lyrics-toggle-label");
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", String(!preferences.lyricsCollapsed));
+    toggle.setAttribute("aria-label", preferences.lyricsCollapsed ? "展开歌词" : "收起歌词");
+  }
+  if (label) label.textContent = preferences.lyricsCollapsed ? "展开歌词" : "收起歌词";
+}
 const titleMotion = setupMusicTitleLayout(stage);
 const textMotion = setupMusicTextMotion(stage);
 // Keep the previous navigation available while the ruler version is on trial.
@@ -406,7 +425,7 @@ const presentation = new MusicPresentation({
     mode = next;
     stage.dataset.mode = next;
     syncSelectionMotion();
-    syncLyricDockVisibility();
+    syncLyricsPanel();
   },
   prepareMenu: () => {
     activeTab = "tracks";
@@ -680,7 +699,7 @@ async function applyLibrary() {
     presentation.reset();
   }
   stage.dataset.mode = mode;
-  syncLyricDockVisibility();
+  syncLyricsPanel();
   $("#music-empty").hidden = albums.length > 0;
   // Ordinary index refreshes must not reveal a page while its peer is exiting.
   if (!ready || !hadAlbums || !albums.length) {
@@ -1092,9 +1111,8 @@ player.subscribe((state) => {
   if ((state.currentTrack?.id ?? null) !== lyricTrackId)
     void loadLyrics(state.currentTrack);
   else syncLyricsPosition(player.playbackTime);
-  syncLyricDockVisibility();
+  syncLyricsPanel();
   syncLyricClock();
-  updateLyricsPanel();
   syncQueuePanel();
   const titleVisible = !!state.currentTrack &&
     (state.transport === "playing" || state.transport === "paused" || state.transport === "loading");
@@ -1159,7 +1177,6 @@ function openPanel(next: Panel) {
     settings: ["SYSTEM SETTINGS", "播放与画质"],
     playlists: ["YOUR PLAYLISTS", "我的歌单"],
     queue: ["UP NEXT", "播放队列"],
-    lyrics: ["SYNCHRONIZED LYRICS", "同步歌词"],
   };
   $("#music-panel-root").innerHTML =
     `<div class="music-panel-scrim" data-action="dismiss-panel"><section class="music-panel" role="dialog" aria-modal="true" aria-labelledby="music-panel-title"><div class="panel-heading"><div><small>${titles[next][0]}</small><h2 id="music-panel-title">${titles[next][1]}</h2></div><button data-action="close-panel" aria-label="关闭">×</button></div><div id="panel-body"></div></section></div>`;
@@ -1180,7 +1197,6 @@ function openPanel(next: Panel) {
   if (next === "settings") renderSettingsPanel();
   if (next === "playlists") renderPlaylistPanel();
   if (next === "queue") renderQueuePanel();
-  if (next === "lyrics") renderLyricsPanel();
   (
     document.querySelector<HTMLElement>("#album-search") ||
     $("#music-panel-root button")
@@ -1399,8 +1415,7 @@ function playPlaylist(playlistId: string, selectedTrackId?: string) {
 }
 
 function renderQueuePanel() {
-  $("#panel-body").innerHTML = `<div class="queue-toolbar"><span id="queue-current-status"></span><div><button data-action="queue-prev" aria-label="上一首">上一首</button><button data-action="play-pause" aria-label="播放或暂停">${playerState.playing ? "暂停" : "播放"}</button><button data-action="queue-next" aria-label="下一首">下一首</button><button data-action="lyrics-panel">同步歌词 ↗</button></div></div><div id="queue-list" class="queue-list"></div>`;
-  syncQueuePanel(true);
+  $("#panel-body").innerHTML = `<div class="queue-toolbar"><span id="queue-current-status"></span><div><button data-action="queue-prev" aria-label="上一首">上一首</button><button data-action="play-pause" aria-label="播放或暂停">${playerState.playing ? "暂停" : "播放"}</button><button data-action="queue-next" aria-label="下一首">下一首</button><button data-action="lyrics-panel">同步歌词 ↗</button></div></div><div id="queue-list" class="queue-list"></div>`;  syncQueuePanel(true);
 }
 
 function syncQueuePanel(force = false) {
@@ -1431,25 +1446,41 @@ function syncQueuePanel(force = false) {
   if (nextButton) nextButton.disabled = playerState.currentIndex < 0 || playerState.currentIndex >= playerState.queue.length - 1;
 }
 
-function renderLyricsPanel() {
-  $("#panel-body").innerHTML = `<div class="lyrics-header"><div><small>NOW PLAYING</small><strong id="lyrics-track-title">—</strong><span id="lyrics-track-artist"></span></div><button data-action="queue-panel">播放队列 ↗</button></div><div class="lyrics-seek-row"><span id="lyrics-time-current">0:00</span><input id="lyrics-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="歌曲播放进度"><span id="lyrics-time-total">0:00</span></div><p id="lyrics-status" class="lyrics-status" role="status" aria-live="polite"></p><div id="lyrics-current" class="lyrics-current" aria-live="polite"></div><div id="lyrics-lines" class="lyrics-lines"></div>`;
-  activeRenderedLyric = -2;
-  renderLyricRows();
-  updateLyricsPanel();
-  syncLyricsPosition(player.playbackTime);
-  if (playerState.currentTrack && lyricTrackId !== playerState.currentTrack.id) void loadLyrics(playerState.currentTrack);
+// The panel is expanded by default; collapsing keeps only a slim band with the
+// live line so the album column underneath becomes reachable again.
+function setLyricsCollapsed(collapsed: boolean) {
+  if (preferences.lyricsCollapsed === collapsed) return;
+  preferences.lyricsCollapsed = collapsed;
+  save("rhine-music-preferences", preferences);
+  $("#lyrics-panel-body").hidden = collapsed;
+  stage.dataset.lyricsCollapsed = String(collapsed);
+  const toggle = document.querySelector<HTMLButtonElement>("#lyrics-toggle");
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.setAttribute("aria-label", collapsed ? "展开歌词" : "收起歌词");
+  }
+  const label = document.querySelector<HTMLElement>("#lyrics-toggle-label");
+  if (label) label.textContent = collapsed ? "展开歌词" : "收起歌词";
+  // Resuming from a collapsed band re-centres instead of scrolling from the top.
+  if (!collapsed) {
+    lyricScrollFrame && cancelAnimationFrame(lyricScrollFrame);
+    lyricScrollFrame = 0;
+    activeLyric = -2;
+    syncLyricsPosition(player.playbackTime);
+  }
 }
 
 async function loadLyrics(track: MusicTrack | null) {
   lyricTrackId = track?.id ?? null;
   const requestVersion = ++lyricRequestVersion;
   lyricLines = [];
-  lyricStateText = track ? "正在查找与歌曲同名的 .lrc 文件…" : "请先播放一首歌曲，再查看同步歌词。";
-  activeRenderedLyric = -2;
-  activeDockLyric = -2;
+  lyricStateText = track ? "正在查找与歌曲同名的 .lrc 文件…" : "尚未载入歌词。";
+  activeLyric = -2;
+  lyricScrollFrame && cancelAnimationFrame(lyricScrollFrame);
+  lyricScrollFrame = 0;
   renderLyricRows();
-  updateLyricsPanel();
-  updateLyricsDock(-1);
+  updateLyricFocus(-1);
+  syncLyricsPanel();
   syncLyricClock();
   if (!track) return;
   try {
@@ -1457,31 +1488,30 @@ async function loadLyrics(track: MusicTrack | null) {
     if (requestVersion !== lyricRequestVersion || lyricTrackId !== track.id) return;
     lyricLines = result.found ? parseLrc(result.text) : [];
     lyricStateText = !result.found ? "歌曲所在文件夹里没有同名 LRC 歌词。" : lyricLines.length ? "点击歌词可跳转到对应时间。" : "LRC 文件没有可识别的时间戳歌词。";
-    activeRenderedLyric = -2;
-    activeDockLyric = -2;
+    activeLyric = -2;
+    lyricScrollFrame && cancelAnimationFrame(lyricScrollFrame);
+    lyricScrollFrame = 0;
     renderLyricRows();
-    updateLyricsPanel();
+    updateLyricFocus(-1);
+    syncLyricsPanel();
     syncLyricsPosition(player.playbackTime);
     syncLyricClock();
   } catch (error) {
     if (requestVersion !== lyricRequestVersion) return;
     lyricStateText = `读取歌词失败：${(error as Error).message}`;
-    activeRenderedLyric = -2;
-    activeDockLyric = -2;
+    activeLyric = -2;
     renderLyricRows();
-    updateLyricsPanel();
-    updateLyricsDock(-1);
+    updateLyricFocus(-1);
+    syncLyricsPanel();
   }
 }
 
 function renderLyricRows() {
-  const list = document.querySelector<HTMLElement>("#lyrics-lines");
+  const list = document.querySelector<HTMLElement>("#lyric-list");
   if (!list) return;
   list.replaceChildren();
-  if (!lyricLines.length) {
-    list.textContent = lyricStateText;
-    return;
-  }
+  list.classList.toggle("lyric-list-empty", !lyricLines.length);
+  if (!lyricLines.length) return;
   const fragment = document.createDocumentFragment();
   lyricLines.forEach((line, index) => {
     const row = document.createElement("button");
@@ -1496,94 +1526,119 @@ function renderLyricRows() {
   list.append(fragment);
 }
 
-function updateLyricsPanel() {
-  const track = playerState?.currentTrack;
-  const title = document.querySelector<HTMLElement>("#lyrics-track-title");
-  const artist = document.querySelector<HTMLElement>("#lyrics-track-artist");
-  const status = document.querySelector<HTMLElement>("#lyrics-status");
-  const seek = document.querySelector<HTMLInputElement>("#lyrics-seek");
-  const current = document.querySelector<HTMLElement>("#lyrics-time-current");
-  const total = document.querySelector<HTMLElement>("#lyrics-time-total");
-  if (title) title.textContent = track?.title || "没有正在播放的歌曲";
-  if (artist) artist.textContent = track ? track.artist : "";
-  if (status) status.textContent = lyricStateText;
-  if (seek) {
-    seek.max = String(Math.max(0, playerState.duration || track?.duration || 0));
-    seek.value = String(Math.min(Number(seek.max), playerState.currentTime));
-    seek.disabled = !track || Number(seek.max) <= 0;
-  }
-  if (current) current.textContent = time(playerState.currentTime);
-  if (total) total.textContent = time(playerState.duration || track?.duration || 0);
-}
-
-function syncLyricsPosition(currentTime: number) {
-  const index = activeLyricIndex(lyricLines, currentTime);
-  if (index !== activeDockLyric) {
-    activeDockLyric = index;
-    updateLyricsDock(index);
-  }
-  if (panel !== "lyrics" || index === activeRenderedLyric) return;
-  activeRenderedLyric = index;
-  document.querySelectorAll<HTMLElement>(".lyric-line[aria-current='true']").forEach((row) => {
-    row.setAttribute("aria-current", "false");
-    row.classList.remove("active");
-  });
-  const active = index >= 0 ? document.querySelector<HTMLElement>(`.lyric-line[data-lyric-index="${index}"]`) : null;
-  const current = document.querySelector<HTMLElement>("#lyrics-current");
-  if (active) {
-    active.setAttribute("aria-current", "true");
-    active.classList.add("active");
-    current?.replaceChildren(document.createTextNode(active.textContent || ""));
-    active.scrollIntoView({ block: "center", behavior: preferences.reduced ? "auto" : "smooth" });
-  } else if (current) current.textContent = "";
-}
-
-function updateLyricsDock(index: number) {
-  const dock = document.querySelector<HTMLElement>("#music-lyric-dock");
-  const current = document.querySelector<HTMLElement>("#music-lyric-current");
-  const next = document.querySelector<HTMLElement>("#music-lyric-next");
-  if (!dock || !current || !next) return;
-  const nextIndex = index >= 0 ? index + 1 : -1;
-  current.textContent = index >= 0 ? lyricLines[index]?.text ?? "" : "";
-  next.textContent = nextIndex >= 0 ? lyricLines[nextIndex]?.text ?? "" : "";
-  current.dataset.lyricIndex = String(index);
-  if (
-    index >= 0 &&
-    !preferences.reduced &&
-    !window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  ) {
-    current.getAnimations().forEach((animation) => animation.cancel());
-    current.animate(
+function updateLyricFocus(index: number) {
+  const list = document.querySelector<HTMLElement>("#lyric-list");
+  const current = document.querySelector<HTMLElement>("#lyrics-panel-current");
+  if (current) current.textContent = index >= 0 ? lyricLines[index]?.text ?? "—" : "—";
+  if (!list) return;
+  list.querySelector<HTMLElement>(".lyric-line.active")?.classList.remove("active");
+  list.querySelectorAll<HTMLElement>(".lyric-line[aria-current='true']").forEach((row) => row.setAttribute("aria-current", "false"));
+  if (index < 0) return;
+  const active = list.querySelector<HTMLElement>(`.lyric-line[data-lyric-index="${index}"]`);
+  if (!active) return;
+  active.classList.add("active");
+  active.setAttribute("aria-current", "true");
+  if (!preferences.reduced && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    active.getAnimations().forEach((animation) => animation.cancel());
+    active.animate(
       [
-        { opacity: 0, transform: "translateY(5px)" },
-        { opacity: 1, transform: "translateY(0)" },
+        { opacity: 0.55 },
+        { opacity: 1 },
       ],
       { duration: 200, easing: "ease-out" },
     );
   }
-  syncLyricDockVisibility();
 }
 
-function syncLyricDockVisibility() {
-  const dock = document.querySelector<HTMLElement>("#music-lyric-dock");
+// Follow the song, but yield to the viewer: a manual scroll or a click pauses
+// the auto-centring until they stop interacting.
+let lyricFollowHold = 0;
+let lyricFollowPaused = false;
+function holdLyricFollow() {
+  lyricFollowPaused = true;
+  lyricFollowHold = window.setTimeout(() => {
+    lyricFollowPaused = false;
+  }, 4000);
+}
+function pauseLyricFollow() {
+  lyricFollowPaused = true;
+  if (lyricFollowHold) window.clearTimeout(lyricFollowHold);
+  lyricFollowHold = 0;
+}
+function resumeLyricFollow() {
+  lyricFollowPaused = false;
+  if (lyricFollowHold) window.clearTimeout(lyricFollowHold);
+  lyricFollowHold = 0;
+}
+for (const event of ["wheel", "pointerdown", "touchstart"] as const)
+  $("#lyric-list").addEventListener(event, pauseLyricFollow, { passive: true });
+$("#lyric-list").addEventListener("pointerup", holdLyricFollow, { passive: true });
+$("#lyric-list").addEventListener("pointercancel", holdLyricFollow, { passive: true });
+$("#lyric-list").addEventListener("keydown", holdLyricFollow);
+
+function centerLyricLine(container: HTMLElement, line: HTMLElement, reduced: boolean) {
+  const start = container.scrollTop;
+  const rowTop = line.getBoundingClientRect().top - container.getBoundingClientRect().top + start;
+  const target = lyricCentreOffset({
+    lineTop: rowTop,
+    lineHeight: line.offsetHeight,
+    viewportHeight: container.clientHeight,
+    scrollHeight: container.scrollHeight,
+  });
+  if (reduced || Math.abs(target - start) < 1) {
+    container.scrollTop = target;
+    return;
+  }
+  const duration = Math.min(520, 240 + Math.abs(target - start) * 0.25);
+  const started = performance.now();
+  const scroll = (now: number) => {
+    lyricScrollFrame = 0;
+    if (!line.isConnected) return;
+    const progress = Math.min(1, (now - started) / duration);
+    const eased = progress < 0.5
+      ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
+    container.scrollTop = start + (target - start) * eased;
+    if (progress < 1) lyricScrollFrame = requestAnimationFrame(scroll);
+  };
+  lyricScrollFrame = requestAnimationFrame(scroll);
+}
+
+function syncLyricsPosition(currentTime: number) {
+  const index = activeLyricIndex(lyricLines, currentTime);
+  if (index === activeLyric) return;
+  activeLyric = index;
+  updateLyricFocus(index);
+  if (index < 0 || preferences.lyricsCollapsed || lyricFollowPaused) return;
+  const list = document.querySelector<HTMLElement>("#lyric-list");
+  const line = list?.querySelector<HTMLElement>(`.lyric-line[data-lyric-index="${index}"]`);
+  if (!list || !line) return;
+  lyricScrollFrame && cancelAnimationFrame(lyricScrollFrame);
+  centerLyricLine(list, line, preferences.reduced || window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+
+function syncLyricsPanel() {
+  const panelElement = document.querySelector<HTMLElement>("#music-lyrics-panel");
   const status = document.querySelector<HTMLElement>("#transport-lyric-status");
   const openLyrics = document.querySelector<HTMLButtonElement>("#transport-lyrics-open");
-  if (!dock || !status || !openLyrics) return;
+  if (!panelElement || !status || !openLyrics) return;
   const state = playerState;
   const track = state?.currentTrack;
   const transportActive = !!track &&
     (state.transport === "playing" || state.transport === "paused" || state.transport === "loading");
-  const hasActiveLine = activeDockLyric >= 0 && !!lyricLines[activeDockLyric];
-  dock.hidden = !transportActive || !hasActiveLine;
+  const hasLyrics = transportActive && lyricLines.length > 0;
+  panelElement.hidden = !hasLyrics;
+  // The top-nav entry stays available whenever a song is loaded without lyrics.
   status.hidden = !transportActive || lyricLines.length > 0;
   openLyrics.hidden = status.hidden;
+  const panelStatus = document.querySelector<HTMLElement>("#lyrics-panel-status");
+  if (panelStatus) panelStatus.textContent = lyricStateText;
   const statusText = lyricStateText.startsWith("正在查找")
     ? "查找歌词…"
     : lyricStateText.startsWith("读取歌词失败")
       ? "歌词读取失败"
       : "暂无歌词";
   if (status.textContent !== statusText) status.textContent = statusText;
-  stage.dataset.lyricsVisible = String(!dock.hidden);
+  stage.dataset.lyricsVisible = String(!panelElement.hidden);
 }
 
 function syncLyricClock() {
@@ -1813,7 +1868,8 @@ document.addEventListener("click", (e) => {
         notify("正在播放的歌曲会保留在队列中。");
       break;
     case "lyrics-panel":
-      openPanel("lyrics");
+      // The lyrics panel is persistent; this entry only brings it back into view.
+      setLyricsCollapsed(false);
       break;
     case "queue-panel":
       openPanel("queue");
@@ -1938,7 +1994,7 @@ document.addEventListener("click", (e) => {
 });
 document.addEventListener("input", (e) => {
   const el = e.target as HTMLInputElement;
-  if (el.id === "lyrics-seek") player.seek(Number(el.value));
+  if (el.id === "lyrics-toggle") setLyricsCollapsed(!preferences.lyricsCollapsed);
   if (el.dataset.quality && el.type === "range") {
     renderQuality = normalizeQuality({
       ...renderQuality,

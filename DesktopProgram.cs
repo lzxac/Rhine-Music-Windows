@@ -18,15 +18,15 @@ using Microsoft.Web.WebView2.Core;
 [assembly: AssemblyTitle("Rhine Music Desktop")]
 [assembly: AssemblyProduct("Rhine Music")]
 [assembly: AssemblyDescription("Rhine Music independent Windows desktop player")]
-[assembly: AssemblyVersion("0.7.0.1")]
-[assembly: AssemblyFileVersion("0.7.0.1")]
-[assembly: AssemblyInformationalVersion("0.7.0-dev.1")]
+[assembly: AssemblyVersion("0.7.0.2")]
+[assembly: AssemblyFileVersion("0.7.0.2")]
+[assembly: AssemblyInformationalVersion("0.7.0-dev.2")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Bong712")]
 
 internal static class Program
 {
     private const string ProductName = "Rhine Music";
-    private const string AppVersion = "0.7.0-dev.1";
+    private const string AppVersion = "0.7.0-dev.2";
     private static int startedProcessId;
     private const uint CreateNoWindow = 0x08000000;
     private const uint StartfUseShowWindow = 0x00000001;
@@ -872,17 +872,19 @@ internal sealed class DesktopWindow : Form
         try
         {
             const string lyricSnapshot = "JSON.stringify((function(){const app=window.rhineMusic||{};const state=app.player||{};" +
-                "const stage=document.querySelector('#stage');const dock=document.querySelector('#music-lyric-dock');" +
+                "const stage=document.querySelector('#stage');const panel=document.querySelector('#music-lyrics-panel');" +
                 "const rect=el=>{if(!el)return null;const r=el.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height};};" +
-                "const current=document.querySelector('#music-lyric-current');const next=document.querySelector('#music-lyric-next');" +
+                "const collapsed=document.querySelector('#lyrics-panel-body');" +
+                "const current=document.querySelector('#lyrics-panel-current');" +
                 "const active=Array.from(document.querySelectorAll('.lyric-line')).find(row=>row.getAttribute('aria-current')==='true')||null;" +
                 "const transportStatus=document.querySelector('#transport-lyric-status');" +
                 "return {appVersion:app.profile?app.profile().version:null,track:state.currentTrack?state.currentTrack.title:null," +
                 "playing:state.playing,currentTime:state.currentTime,playbackTime:app.playbackTime,transport:state.transport||null," +
-                "theme:stage?.dataset.theme||null,layout:stage?.dataset.layout||null,dockHidden:dock?.hidden??true,dockRect:rect(dock)," +
-                "transportStatusHidden:transportStatus?.hidden??true,transportStatus:transportStatus?.textContent||'',current:current?.textContent||'',next:next?.textContent||''," +
+                "theme:stage?.dataset.theme||null,layout:stage?.dataset.layout||null,panelHidden:panel?.hidden??true,panelRect:rect(panel)," +
+                "lyricsCollapsed:stage?.dataset.lyricsCollapsed||null,bodyHidden:collapsed?.hidden??true," +
+                "transportStatusHidden:transportStatus?.hidden??true,transportStatus:transportStatus?.textContent||'',current:current?.textContent||''," +
                 "panelActive:active?.textContent||null,panelActiveIndex:active?.dataset.lyricIndex??null," +
-                "status:document.querySelector('#lyrics-status')?.textContent||null};})())";
+                "status:document.querySelector('#lyrics-panel-status')?.textContent||null};})())";
 
             var selectAlbum = await EvaluateProfileAsync(
                 "(function(){const app=window.rhineMusic;const albums=app&&app.library?app.library.albums:[];" +
@@ -987,20 +989,17 @@ internal sealed class DesktopWindow : Form
             await System.Threading.Tasks.Task.Delay(350);
             WriteProfileCapture("lyrics-paused", await EvaluateProfileAsync(lyricSnapshot));
 
-            await EvaluateProfileAsync("(function(){const button=document.querySelector('#music-lyric-dock [data-action=\\\"lyrics-panel\\\"]');if(!button)return false;button.click();return true;})()");
+            var collapse = await EvaluateProfileAsync(
+                "(function(){const button=document.querySelector('#lyrics-toggle');if(!button)return false;button.click();return true;})()");
+            WriteProfileCapture("lyrics-collapse-toggle", collapse);
             await System.Threading.Tasks.Task.Delay(350);
-            var seek = await EvaluateProfileAsync(
-                "(function(){const input=document.querySelector('#lyrics-seek');if(!input)return false;" +
-                "input.value='5.5';input.dispatchEvent(new Event('input',{bubbles:true}));" +
-                "input.dispatchEvent(new Event('change',{bubbles:true}));return true;})()");
-            WriteProfileCapture("lyrics-seek-control", seek);
-            await System.Threading.Tasks.Task.Delay(150);
-            WriteProfileCapture("lyrics-seek-panel", await EvaluateProfileAsync(lyricSnapshot));
-            await CapturePreviewAsync("lyrics-seek-panel.png");
-            await EvaluateProfileAsync("(function(){const button=document.querySelector('[data-action=\\\"close-panel\\\"]');if(button)button.click();return true;})()");
+            WriteProfileCapture("lyrics-collapsed", await EvaluateProfileAsync(lyricSnapshot));
+            await CapturePreviewAsync("lyrics-collapsed.png");
+            await EvaluateProfileAsync(
+                "(function(){const button=document.querySelector('#lyrics-toggle');if(!button)return false;button.click();return true;})()");
             await System.Threading.Tasks.Task.Delay(350);
-            WriteProfileCapture("lyrics-seek-main", await EvaluateProfileAsync(lyricSnapshot));
-            await CapturePreviewAsync("lyrics-seek-main.png");
+            WriteProfileCapture("lyrics-collapse-restored", await EvaluateProfileAsync(lyricSnapshot));
+            await CapturePreviewAsync("lyrics-collapse-restored.png");
 
             await EvaluateProfileAsync("(function(){const button=document.querySelector('#stop-playback');if(!button)return false;button.click();return true;})()");
             await System.Threading.Tasks.Task.Delay(350);

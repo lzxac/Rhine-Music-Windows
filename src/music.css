@@ -1231,6 +1231,11 @@
   transition-duration: 0.001s !important;
   scroll-behavior: auto !important;
 }
+@media (prefers-reduced-motion: reduce) {
+  .lyric-line {
+    transition: none;
+  }
+}
 @keyframes music-orbit {
   to {
     transform: rotate(360deg);
@@ -2226,78 +2231,171 @@
   }
 }
 
-/* The live lyric line stays light and centered above archive navigation. */
-.music-lyric-dock {
+/* Synchronized lyrics are the main event, not a subtitle: the right column is
+   theirs by default, and collapsing hands the space back to the album column. */
+.music-lyrics-panel {
   position: absolute;
   z-index: 6;
-  left: 50%;
-  bottom: clamp(88px, 10vh, 122px);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: clamp(12px, 2vw, 28px);
+  top: var(--lyrics-top);
+  right: var(--lyrics-right);
+  bottom: var(--lyrics-bottom);
+  display: flex;
+  flex-direction: column;
   box-sizing: border-box;
-  width: min(1080px, 78vw);
-  padding: 10px 18px 0;
-  border-top: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--page-bg) 38%, transparent) 14%,
-    color-mix(in srgb, var(--page-bg) 38%, transparent) 86%,
-    transparent
-  );
-  text-align: center;
-  transform: translateX(-50%);
+  width: var(--lyrics-width);
+  text-align: left;
+  transition: transform 220ms ease, opacity 220ms ease;
 }
-.music-lyric-dock[hidden] {
+.music-lyrics-panel[hidden] {
   display: none !important;
 }
-.music-app[data-mode="detail"] .music-lyric-dock {
-  left: 74%;
-  width: min(1080px, 42vw);
+.lyrics-band {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
 }
-/* Reserve the bottom row for album and genre controls in the archive view.
-   Keep live lyrics in the open lower-right area instead of spanning those controls. */
-.music-app[data-mode="archive"] .music-lyric-dock {
-  left: auto;
-  right: clamp(28px, 4.2vw, 82px);
-  bottom: clamp(168px, 16vh, 204px);
-  width: min(720px, 42vw);
-  text-align: right;
-  transform: none;
+@media (min-width: 1181px) {
+  .music-lyrics-panel {
+    --lyrics-top: clamp(92px, 12vh, 150px);
+    --lyrics-right: clamp(24px, 4vw, 78px);
+    --lyrics-bottom: clamp(44px, 8vh, 96px);
+    --lyrics-width: clamp(340px, 30vw, 560px);
+  }
 }
-.music-lyric-copy {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
+@media (max-width: 1180px) {
+  .music-lyrics-panel {
+    --lyrics-top: 132px;
+    --lyrics-right: clamp(18px, 4vw, 40px);
+    --lyrics-bottom: 40px;
+    --lyrics-width: clamp(300px, 52vw, 460px);
+  }
 }
-.music-lyric-current {
-  color: var(--ink);
-  font-size: clamp(18px, 1.2vw, 25px);
-  font-weight: 600;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
-  text-wrap: balance;
-}
-.music-lyric-next {
-  color: var(--muted);
-  font-size: clamp(13px, 0.9vw, 16px);
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-  opacity: 0.78;
-}
-.music-lyric-dock > button {
-  min-height: 30px;
-  padding: 0 2px 3px;
+.lyrics-toggle {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
   font-size: 9px;
+  letter-spacing: 0.4px;
   white-space: nowrap;
 }
-.music-lyric-dock > button:hover,
-.music-lyric-dock > button:focus-visible {
+.lyrics-toggle:hover,
+.lyrics-toggle:focus-visible {
   color: var(--accent);
+}
+.lyrics-toggle-glyph {
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 200ms ease;
+}
+.music-app[data-lyrics-collapsed="true"] .lyrics-toggle-glyph {
+  transform: rotate(180deg);
+}
+.lyrics-panel-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.music-app[data-lyrics-collapsed="false"] .lyrics-panel-status {
+  display: none;
+}
+.lyrics-panel-current {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(15px, 1.05vw, 21px);
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.music-app[data-lyrics-collapsed="false"] .lyrics-panel-current {
+  display: none;
+}
+.lyrics-panel-body {
+  position: relative;
+  min-height: 0;
+  margin-top: 16px;
+  flex: 1 1 auto;
+  /* Fade the incoming and outgoing lines so the panel edge never looks cut. */
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 10%,
+    #000 90%,
+    transparent 100%
+  );
+}
+.lyrics-panel-body[hidden] {
+  display: none !important;
+}
+.lyric-list {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.lyric-line {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: clamp(15px, 1.05vw, 20px);
+  line-height: 1.5;
+  text-align: left;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: color 140ms ease, font-size 140ms ease;
+}
+.lyric-line:hover,
+.lyric-line.active {
+  color: var(--ink);
+}
+.lyric-line.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+.lyric-list-empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  padding: 8px 12px;
+}
+/* Compact windows have no room for a right column, so the panel parks itself
+   along the bottom edge as a horizontally scrolling band. */
+@media (max-width: 780px) {
+  .music-lyrics-panel {
+    top: auto;
+    left: 16px;
+    right: 16px;
+    bottom: 120px;
+    width: auto;
+    max-height: 42vh;
+  }
+  .music-lyrics-panel .lyrics-band {
+    border-bottom: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  }
+  .music-app[data-lyrics-collapsed="false"] .lyrics-panel-body {
+    max-height: 34vh;
+  }
+  .lyric-line {
+    padding: 7px 6px;
+    font-size: 14px;
+  }
 }
 .transport-lyric-status {
   max-width: clamp(62px, 9vw, 120px);
@@ -2321,43 +2419,12 @@
 .music-topnav .minimal-transport button.transport-lyrics-open:focus-visible {
   color: var(--accent);
 }
+/* Lyrics no longer reserve the bottom of the album column; the panel overlays
+   it and the viewer collapses the panel when they want the album back. */
 .music-app[data-lyrics-visible="true"][data-mode="detail"] #album-detail-content {
-  bottom: clamp(156px, 16vh, 184px);
+  padding-right: 0;
 }
 @media (max-width: 700px) {
-  .music-lyric-dock {
-    bottom: 112px;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 3px;
-    width: calc(100% - 36px);
-    padding: 9px 8px 0;
-  }
-  .music-app[data-mode="detail"] .music-lyric-dock {
-    left: 50%;
-    width: calc(100% - 36px);
-  }
-  .music-app[data-mode="archive"] .music-lyric-dock {
-    left: 50%;
-    right: auto;
-    bottom: clamp(156px, 26vh, 196px);
-    width: calc(100% - 36px);
-    text-align: center;
-    transform: translateX(-50%);
-  }
-  .music-lyric-current {
-    font-size: clamp(17px, 4.4vw, 20px);
-    line-height: 1.35;
-  }
-  .music-lyric-next {
-    font-size: 13px;
-  }
-  .music-lyric-dock > button {
-    justify-self: center;
-    min-height: 26px;
-  }
-  .music-app[data-lyrics-visible="true"][data-mode="detail"] #album-detail-content {
-    bottom: 180px;
-  }
   .music-topnav .transport-lyric-status {
     display: none;
   }

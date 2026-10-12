@@ -60,3 +60,31 @@ export function activeLyricIndex(lines: readonly LyricLine[], currentTime: numbe
   }
   return low - 1;
 }
+
+export interface LyricScrollMetrics {
+  /** Current scroll offset of the list. */
+  scrollTop: number;
+  /** Distance from the list's content top to the target line's top. */
+  lineTop: number;
+  /** Height of the target line. */
+  lineHeight: number;
+  /** Visible height of the list. */
+  viewportHeight: number;
+  /** Total scrollable content height of the list. */
+  scrollHeight: number;
+}
+
+/**
+ * Scroll offset that centres one lyric line inside the list. Clamped so the
+ * first and last lines still centre instead of stopping short at the edges.
+ */
+export function lyricCentreOffset({
+  lineTop,
+  lineHeight,
+  viewportHeight,
+  scrollHeight,
+}: Omit<LyricScrollMetrics, "scrollTop">): number {
+  const max = Math.max(0, scrollHeight - viewportHeight);
+  const centred = lineTop - Math.max(0, (viewportHeight - lineHeight) / 2);
+  return Math.max(0, Math.min(max, centred));
+}

@@ -283,3 +283,19 @@ This is the first version of this fork's own line, split from the upstream Windo
 - Start the `0.7.0` version line here; `0.6.0-dev.58` and earlier stay on the upstream-compatible line.
 - Carry over the album artwork fix from `0.6.0-dev.58` (loose singles and compilation folders no longer share the first file's cover).
 - No feature changes in this entry. Feature work for this line begins with the next version.
+
+## 0.7.0-dev.2 (2026-10-13)
+
+Synchronized lyrics become the main view instead of a two-line subtitle.
+
+- Replace the two-line lyric dock with a persistent right-hand scrolling panel. It appears automatically once a track with lyrics is playing, and hides itself when the track has no LRC.
+- Centre the active line inside the panel with a cancellable eased scroll. The previous `scrollIntoView` call scrolled every scrollable ancestor and fought the viewer; the panel now owns its own `scrollTop`.
+- Pause the automatic centring while the viewer scrolls or drags the list, and resume four seconds after they stop, so following the song never fights manual reading.
+- Add a collapse toggle. Collapsed keeps a slim band with the live line and the load status, and the state persists across sessions. With the panel persistent, the whole-screen lyrics modal is removed, along with its seek slider, duplicate current-line echo and its entry in the shared modal shell.
+- Fade the list edges with a mask so lines enter and leave the panel cleanly, honour `prefers-reduced-motion` in both CSS and JavaScript, and keep lyric text as literal text rather than markup.
+- Compact windows have no right column, so below 780px the panel parks along the bottom edge.
+- Update the scene check: its lyric assertions string-matched the retired dock markup, so they now cover the persistent panel, the collapse toggle, the container-owned scroll and the reduced-motion handling. The check still stops later at the pre-existing `CoverAtlas.writePageTile` canvas failure documented in `0.6.0-dev.58`.
+- Update the WinForms capture pass to drive the new panel (collapse, expand) instead of the removed modal and seek slider.
+- Move the centring arithmetic into `lyricCentreOffset()` in `src/lyrics.ts` and cover it with tests for the middle line, both list edges, a line taller than the viewport and a not-yet-measured list (`check-lyrics.mjs` now 6/6). The old inline expression and the extracted function were compared across 672 metric combinations with zero differences.
+
+Known interaction left for a later version: the panel overlays the album column while expanded, so the album facts are only reachable after collapsing. Moving album information into its own collapse is a separate change.
