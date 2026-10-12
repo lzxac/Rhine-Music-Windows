@@ -275,3 +275,11 @@
 - Add two regression tests: loose singles in an artist folder keep distinct covers before and after a rescan, and tracks sharing one album tag still share one cover.
 - Verification on a real 666-track library: 169 albums, 118 with artwork, 118 distinct images, 0 reused images (previously 41 albums shared one image). `check-music-library.mjs` passes 14/14.
 - Known pre-existing failure, not introduced by this change: `node scripts/check-music-scene.mjs` aborts with `TypeError: Cannot read properties of undefined (reading 'getImageData')` at `src/cover-atlas.ts:351`, because that check drives the canvas atlas without a browser canvas. It fails identically on the unmodified 0.6.0-dev.57 tree, so `npm run check:music` cannot complete in this environment.
+
+## 0.7.0-dev.1 (2026-10-12)
+
+This is the first version of this fork's own line, split from the upstream Windows port so features developed here can diverge freely without complicating anything that is offered back upstream. See [DEVELOPMENT.md](DEVELOPMENT.md).
+
+- Start the `0.7.0` version line here; `0.6.0-dev.58` and earlier stay on the upstream-compatible line.
+- Carry over the album artwork fix from `0.6.0-dev.58` (loose singles and compilation folders no longer share the first file's cover).
+- No feature changes in this entry. Feature work for this line begins with the next version.

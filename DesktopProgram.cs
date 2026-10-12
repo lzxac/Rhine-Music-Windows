@@ -18,15 +18,15 @@ using Microsoft.Web.WebView2.Core;
 [assembly: AssemblyTitle("Rhine Music Desktop")]
 [assembly: AssemblyProduct("Rhine Music")]
 [assembly: AssemblyDescription("Rhine Music independent Windows desktop player")]
-[assembly: AssemblyVersion("0.6.0.58")]
-[assembly: AssemblyFileVersion("0.6.0.58")]
-[assembly: AssemblyInformationalVersion("0.6.0-dev.58")]
+[assembly: AssemblyVersion("0.7.0.1")]
+[assembly: AssemblyFileVersion("0.7.0.1")]
+[assembly: AssemblyInformationalVersion("0.7.0-dev.1")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Bong712")]
 
 internal static class Program
 {
     private const string ProductName = "Rhine Music";
-    private const string AppVersion = "0.6.0-dev.58";
+    private const string AppVersion = "0.7.0-dev.1";
     private static int startedProcessId;
     private const uint CreateNoWindow = 0x08000000;
     private const uint StartfUseShowWindow = 0x00000001;
