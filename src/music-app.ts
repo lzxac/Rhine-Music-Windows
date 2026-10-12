@@ -280,6 +280,7 @@ stage.innerHTML = `
 // Apply the stored collapsed state once, before the first paint of the panel.
 $("#lyrics-panel-body").hidden = !!preferences.lyricsCollapsed;
 stage.dataset.lyricsCollapsed = String(!!preferences.lyricsCollapsed);
+stage.dataset.lyricsPlaying = "false";
 {
   const toggle = document.querySelector<HTMLButtonElement>("#lyrics-toggle");
   const label = document.querySelector<HTMLElement>("#lyrics-toggle-label");
@@ -1461,7 +1462,9 @@ function setLyricsCollapsed(collapsed: boolean) {
   }
   const label = document.querySelector<HTMLElement>("#lyrics-toggle-label");
   if (label) label.textContent = collapsed ? "展开歌词" : "收起歌词";
-  // Resuming from a collapsed band re-centres instead of scrolling from the top.
+  // Refresh the derived "the album column stands down" flag right away, then
+  // re-centre so resuming does not scroll up from wherever the list sat.
+  syncLyricsPanel();
   if (!collapsed) {
     lyricScrollFrame && cancelAnimationFrame(lyricScrollFrame);
     lyricScrollFrame = 0;
@@ -1524,6 +1527,13 @@ function renderLyricRows() {
     fragment.append(row);
   });
   list.append(fragment);
+  syncLyricListPadding();
+  // Re-measure once layout has settled, then keep it correct across resizes.
+  requestAnimationFrame(() => {
+    syncLyricListPadding();
+    const current = list.querySelector<HTMLElement>(".lyric-line.active");
+    if (current) centerLyricLine(list, current, true);
+  });
 }
 
 function updateLyricFocus(index: number) {
@@ -1575,6 +1585,28 @@ for (const event of ["wheel", "pointerdown", "touchstart"] as const)
 $("#lyric-list").addEventListener("pointerup", holdLyricFollow, { passive: true });
 $("#lyric-list").addEventListener("pointercancel", holdLyricFollow, { passive: true });
 $("#lyric-list").addEventListener("keydown", holdLyricFollow);
+// The head/tail room depends on the panel height, so it is re-measured whenever
+// the panel changes size rather than being guessed from the panel's width.
+new ResizeObserver(() => {
+  syncLyricListPadding();
+  if (activeLyric < 0 || preferences.lyricsCollapsed) return;
+  const list = document.querySelector<HTMLElement>("#lyric-list");
+  const line = list?.querySelector<HTMLElement>(`.lyric-line[data-lyric-index="${activeLyric}"]`);
+  if (list && line) centerLyricLine(list, line, true);
+}).observe($("#music-lyrics-panel"));
+
+// The first and last lines can only reach the middle of the panel if the list
+// carries matching head and tail room. A percentage pad would resolve against
+// the panel's width, so the room is measured from the list's own height.
+function syncLyricListPadding() {
+  const list = document.querySelector<HTMLElement>("#lyric-list");
+  if (!list) return;
+  const line = list.querySelector<HTMLElement>(".lyric-line");
+  const lineHeight = line?.offsetHeight || 34;
+  const room = Math.max(0, Math.round((list.clientHeight - lineHeight) / 2));
+  list.style.paddingTop = `${room}px`;
+  list.style.paddingBottom = `${room}px`;
+}
 
 function centerLyricLine(container: HTMLElement, line: HTMLElement, reduced: boolean) {
   const start = container.scrollTop;
@@ -1639,6 +1671,9 @@ function syncLyricsPanel() {
       : "暂无歌词";
   if (status.textContent !== statusText) status.textContent = statusText;
   stage.dataset.lyricsVisible = String(!panelElement.hidden);
+  // While the expanded panel occupies the album column, that column stands down
+  // so the two never draw over each other. Collapsing brings the album back.
+  stage.dataset.lyricsPlaying = String(!panelElement.hidden && !preferences.lyricsCollapsed);
 }
 
 function syncLyricClock() {
@@ -1867,6 +1902,9 @@ document.addEventListener("click", (e) => {
       if (target.dataset.trackId && !player.removeQueuedTrack(target.dataset.trackId))
         notify("正在播放的歌曲会保留在队列中。");
       break;
+    case "lyrics-toggle":
+      setLyricsCollapsed(!preferences.lyricsCollapsed);
+      break;
     case "lyrics-panel":
       // The lyrics panel is persistent; this entry only brings it back into view.
       setLyricsCollapsed(false);
@@ -1994,7 +2032,6 @@ document.addEventListener("click", (e) => {
 });
 document.addEventListener("input", (e) => {
   const el = e.target as HTMLInputElement;
-  if (el.id === "lyrics-toggle") setLyricsCollapsed(!preferences.lyricsCollapsed);
   if (el.dataset.quality && el.type === "range") {
     renderQuality = normalizeQuality({
       ...renderQuality,

@@ -2231,23 +2231,42 @@
   }
 }
 
-/* Synchronized lyrics are the main event, not a subtitle: the right column is
-   theirs by default, and collapsing hands the space back to the album column. */
+/* Synchronized lyrics take the album column's place while a song with lyrics is
+   playing. The panel is opaque and mirrors the column's box, so the two never
+   draw on top of each other and no other layout shifts. */
 .music-lyrics-panel {
   position: absolute;
   z-index: 6;
   top: var(--lyrics-top);
+  left: var(--lyrics-left);
   right: var(--lyrics-right);
   bottom: var(--lyrics-bottom);
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
   width: var(--lyrics-width);
+  max-width: var(--lyrics-max-width);
+  padding: var(--lyrics-padding);
+  background: rgb(247 246 241 / 0.9);
+  border-left: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  backdrop-filter: blur(12px);
   text-align: left;
-  transition: transform 220ms ease, opacity 220ms ease;
+}
+.music-app[data-theme="dusk"] .music-lyrics-panel {
+  background: rgb(238 234 226 / 0.9);
+}
+.music-app[data-theme="night"] .music-lyrics-panel {
+  background: rgb(18 22 27 / 0.9);
 }
 .music-lyrics-panel[hidden] {
   display: none !important;
+}
+/* The album column yields the space instead of showing through the lyrics. */
+.music-app[data-lyrics-playing="true"][data-mode="detail"] #album-detail-content {
+  visibility: hidden;
+}
+.music-app[data-lyrics-playing="true"][data-mode="detail"] .music-detail .card-caption {
+  display: none;
 }
 .lyrics-band {
   display: flex;
@@ -2256,20 +2275,35 @@
   padding-bottom: 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
 }
+/* Mirror #album-detail-content's box exactly, so the panel replaces the column
+   rather than floating over a differently sized area. */
+.music-lyrics-panel {
+  --lyrics-top: var(--detail-content-top);
+  --lyrics-left: 58%;
+  --lyrics-right: 4.5%;
+  --lyrics-bottom: 52px;
+  --lyrics-width: auto;
+  --lyrics-max-width: none;
+  --lyrics-padding: 0;
+}
+.music-app[data-layout="desktop"] .music-lyrics-panel,
+.music-app[data-layout="compact"] .music-lyrics-panel {
+  --lyrics-left: 52%;
+}
 @media (min-width: 1181px) {
-  .music-lyrics-panel {
-    --lyrics-top: clamp(92px, 12vh, 150px);
-    --lyrics-right: clamp(24px, 4vw, 78px);
-    --lyrics-bottom: clamp(44px, 8vh, 96px);
-    --lyrics-width: clamp(340px, 30vw, 560px);
+  .music-app[data-layout="desktop"] .music-lyrics-panel,
+  .music-app[data-layout="compact"] .music-lyrics-panel {
+    --lyrics-top: calc(var(--detail-content-top) - 14px);
+    --lyrics-right: 4.5%;
+    --lyrics-padding: 0 clamp(18px, 1.6vw, 30px) 12px;
   }
 }
 @media (max-width: 1180px) {
   .music-lyrics-panel {
     --lyrics-top: 132px;
-    --lyrics-right: clamp(18px, 4vw, 40px);
+    --lyrics-right: 6%;
     --lyrics-bottom: 40px;
-    --lyrics-width: clamp(300px, 52vw, 460px);
+    --lyrics-padding: 0 14px 10px;
   }
 }
 .lyrics-toggle {
@@ -2326,8 +2360,8 @@
   mask-image: linear-gradient(
     to bottom,
     transparent 0,
-    #000 10%,
-    #000 90%,
+    #000 12%,
+    #000 88%,
     transparent 100%
   );
 }
@@ -2337,6 +2371,8 @@
 .lyric-list {
   height: 100%;
   margin: 0;
+  /* No head/tail spacer: the active line is centred by scrollTop, and a spacer
+     would push the first lines out of view and pin scrolling near the top. */
   padding: 0;
   overflow: auto;
   overscroll-behavior: contain;

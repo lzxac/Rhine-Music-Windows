@@ -76,8 +76,13 @@ assert.ok(musicAppSource.includes('type Theme = "day" | "dusk" | "night"'), 'the
 assert.ok(!musicAppSource.includes('music-lyric-previous'), 'the primary lyric view must not retain a third previous-line row');
 assert.ok(!musicAppSource.includes('LIVE LYRICS'), 'the primary lyric view must not retain the large bilingual card heading');
 assert.ok(!musicAppSource.includes('id="music-lyric-dock"'), 'the two-line lyric dock must be replaced by the scrolling panel');
+assert.ok(musicAppSource.includes('case "lyrics-toggle":'), 'the collapse button must be handled by the click dispatcher, not by an input handler');
+assert.ok(/\.music-app\[data-lyrics-playing="true"\]\[data-mode="detail"\] #album-detail-content\s*\{\s*visibility: hidden;/.test(musicStyleSource), 'the album column must stand down while the lyrics panel occupies its space');
+assert.ok(musicStyleSource.includes('background: rgb(247 246 241 / 0.9)'), 'the lyrics panel must be opaque so column text cannot show through it');
+assert.ok(musicStyleSource.includes('backdrop-filter: blur(12px)'), 'the lyrics panel must separate itself from the scene behind it');
+assert.ok(musicStyleSource.includes('--lyrics-left: 58%'), 'the lyrics panel must mirror the album column geometry');
+assert.ok(!musicStyleSource.includes('.lyric-list::after'), 'the lyric list must not use head/tail spacers, which push the first lines out of view');
 assert.ok(!musicStyleSource.includes('.music-lyric-dock'), 'the retired lyric dock must not leave layout rules behind');
-assert.ok(musicStyleSource.includes('--lyrics-width: clamp(340px, 30vw, 560px)'), 'the desktop lyrics panel must claim a bounded fixed column width');
 assert.ok(musicStyleSource.includes('mask-image: linear-gradient('), 'the lyrics list must fade out at the panel edges');
 assert.ok(musicStyleSource.includes('font-size: clamp(15px, 1.05vw, 20px)'), 'the primary lyric text must remain legible at desktop resolutions');
 assert.ok(musicStyleSource.includes('@media (max-width: 780px)'), 'compact windows need a documented fallback for the lyrics panel');
