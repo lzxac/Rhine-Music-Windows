@@ -56,9 +56,11 @@ assert.ok(musicAppSource.includes('const hasLyrics = transportActive && lyricLin
 assert.ok(musicAppSource.includes('panelElement.hidden = !hasLyrics;'), 'the lyrics panel must hide itself when the current track has no lyrics');
 assert.ok(musicAppSource.includes('$("#lyrics-panel-body").hidden = collapsed;'), 'collapsing the lyrics panel must hide its scrolling body');
 assert.ok(musicAppSource.includes('toggle.setAttribute("aria-expanded", String(!collapsed));'), 'the lyrics toggle must expose its expanded state to assistive technology');
-assert.ok(musicAppSource.includes('function centerLyricLine(container: HTMLElement, line: HTMLElement, reduced: boolean) {'), 'scrolling lyrics must centre the active line inside its own container');
-assert.ok(musicAppSource.includes('function holdLyricFollow()'), 'a manual lyric scroll must be able to pause the automatic centring');
-assert.ok(musicAppSource.includes('$("#lyric-list").addEventListener(event, pauseLyricFollow, { passive: true });'), 'lyric scrolling must yield while the viewer scrolls the list themselves');
+assert.ok(musicAppSource.includes('function centerLyricLine(snap: boolean) {'), 'scrolling lyrics must centre the active line inside its own container');
+assert.ok(musicAppSource.includes('list.scrollTop = start + (target - start) * eased;'), 'the lyric follow must animate the list scroll itself so moves cannot stack');
+assert.ok(musicAppSource.includes('function holdLyricFollow()'), 'a manual lyric scroll must be able to defer the automatic centring');
+assert.ok(musicAppSource.includes('$("#lyric-list").addEventListener(event, holdLyricFollow, { passive: true });'), 'lyric scrolling must yield while the viewer scrolls the list themselves');
+assert.ok(musicAppSource.includes('let lyricFollowUntil = 0;'), 'the follow deferral must be a single deadline, not a flag plus timer that can strand it');
 assert.ok(musicAppSource.includes('player.playbackTime'), 'the lyric view must read the live audio clock');
 assert.ok(musicAppSource.includes('activeLyric = -2'), 'rebuilding lyric rows must force the current line to be reapplied');
 assert.ok(musicAppSource.includes('id="transport-lyric-status"'), 'missing LRC status must stay beside the current track title');
@@ -77,7 +79,8 @@ assert.ok(!musicAppSource.includes('music-lyric-previous'), 'the primary lyric v
 assert.ok(!musicAppSource.includes('LIVE LYRICS'), 'the primary lyric view must not retain the large bilingual card heading');
 assert.ok(!musicAppSource.includes('id="music-lyric-dock"'), 'the two-line lyric dock must be replaced by the scrolling panel');
 assert.ok(musicAppSource.includes('case "lyrics-toggle":'), 'the collapse button must be handled by the click dispatcher, not by an input handler');
-assert.ok(/\.music-app\[data-lyrics-playing="true"\]\[data-mode="detail"\] #album-detail-content\s*\{\s*visibility: hidden;/.test(musicStyleSource), 'the album column must stand down while the lyrics panel occupies its space');
+assert.ok(!/\.music-app\[data-lyrics-playing="true"\]\[data-mode="detail"\] #album-detail-content\s*\{\s*visibility: hidden;/.test(musicStyleSource), 'the album column must not be hidden, or its credits and cover caption disappear with it');
+assert.ok(musicStyleSource.includes('box-shadow: 0 10px 34px rgb(0 0 0 / 0.07)'), 'the panel card treatment must apply to both expanded and collapsed states');
 assert.ok(musicStyleSource.includes('background: rgb(247 246 241 / 0.9)'), 'the lyrics panel must be opaque so column text cannot show through it');
 assert.ok(musicStyleSource.includes('backdrop-filter: blur(12px)'), 'the lyrics panel must separate itself from the scene behind it');
 assert.ok(musicStyleSource.includes('--lyrics-left: 58%'), 'the lyrics panel must mirror the album column geometry');

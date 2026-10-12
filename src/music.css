@@ -19,6 +19,9 @@
   transform: none;
   background: var(--page-bg);
   --stage-scale: 1;
+  /* Declared on the stage, not on .music-detail: the lyrics panel is a sibling
+     of that section, and a custom property cannot inherit across siblings. */
+  --detail-content-top: 170px;
 }
 .music-app[data-theme="night"] {
   --ink: #e9eef2;
@@ -1306,6 +1309,9 @@
   .music-counter b {
     font-size: 65px;
   }
+  /* Also set on the stage so the lyrics panel, which is a sibling of
+     .music-detail rather than a descendant, inherits the same step. */
+  .music-app,
   .music-detail {
     --detail-content-top: 210px;
   }
@@ -1447,6 +1453,7 @@
   .card-caption {
     left: 27px;
   }
+  .music-app,
   .music-detail {
     --detail-content-top: 132px;
   }
@@ -2248,7 +2255,11 @@
   max-width: var(--lyrics-max-width);
   padding: var(--lyrics-padding);
   background: rgb(247 246 241 / 0.9);
-  border-left: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  /* Card treatment is on the base rule so the expanded and collapsed states
+     look like the same object; only the height changes between them. */
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  border-radius: 3px;
+  box-shadow: 0 10px 34px rgb(0 0 0 / 0.07);
   backdrop-filter: blur(12px);
   text-align: left;
 }
@@ -2261,13 +2272,23 @@
 .music-lyrics-panel[hidden] {
   display: none !important;
 }
-/* The album column yields the space instead of showing through the lyrics. */
-.music-app[data-lyrics-playing="true"][data-mode="detail"] #album-detail-content {
-  visibility: hidden;
+/* Collapsed, the panel becomes a compact card holding just the live line and
+   the load status, so the album column underneath is fully visible again. */
+.music-app[data-lyrics-collapsed="true"] .music-lyrics-panel {
+  bottom: auto;
+  /* The collapsed card is already aligned to the measured album title, because
+     its top is the panel top plus this offset — so the offset stays 0. */
+  top: calc(var(--lyrics-top) + var(--lyrics-collapsed-offset, 0px));
+  padding: 14px 18px 16px;
 }
-.music-app[data-lyrics-playing="true"][data-mode="detail"] .music-detail .card-caption {
-  display: none;
+.music-app[data-lyrics-collapsed="true"] .lyrics-band {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
+/* The album column is NOT hidden while the lyrics show. Hiding it also removed
+   the cover caption and the credits block, which sit outside the panel's box.
+   The panel is opaque and its width is capped at the album switcher, so the
+   column can stay visible around it instead. */
 .lyrics-band {
   display: flex;
   flex-direction: column;
@@ -2278,13 +2299,17 @@
 /* Mirror #album-detail-content's box exactly, so the panel replaces the column
    rather than floating over a differently sized area. */
 .music-lyrics-panel {
-  --lyrics-top: var(--detail-content-top);
+  --lyrics-top: var(--detail-content-top, 170px);
   --lyrics-left: 58%;
   --lyrics-right: 4.5%;
   --lyrics-bottom: 52px;
   --lyrics-width: auto;
+  /* No cap: the left/right insets above already match the album column's, so
+     the panel spans exactly the column it stands in for. */
   --lyrics-max-width: none;
-  --lyrics-padding: 0;
+  /* Inset the lyrics from the card edge; the card itself stays flush with the
+     album column so the two boxes match. */
+  --lyrics-padding: 16px 18px 18px;
 }
 .music-app[data-layout="desktop"] .music-lyrics-panel,
 .music-app[data-layout="compact"] .music-lyrics-panel {
@@ -2293,18 +2318,30 @@
 @media (min-width: 1181px) {
   .music-app[data-layout="desktop"] .music-lyrics-panel,
   .music-app[data-layout="compact"] .music-lyrics-panel {
-    --lyrics-top: calc(var(--detail-content-top) - 14px);
+    --lyrics-top: var(--detail-content-top, 170px);
     --lyrics-right: 4.5%;
-    --lyrics-padding: 0 clamp(18px, 1.6vw, 30px) 12px;
+    --lyrics-padding: 16px clamp(18px, 1.6vw, 30px) 18px;
   }
 }
 @media (max-width: 1180px) {
   .music-lyrics-panel {
-    --lyrics-top: 132px;
-    --lyrics-right: 6%;
+    /* Mirror #album-detail-content at this breakpoint: its own rule sets
+       left 56% / right 4%, so the panel must not keep the wider base insets. */
+    --lyrics-top: var(--detail-content-top, 170px);
+    --lyrics-left: 56%;
+    --lyrics-right: 4%;
     --lyrics-bottom: 40px;
-    --lyrics-padding: 0 14px 10px;
+    --lyrics-padding: 14px 14px 14px;
   }
+}
+/* Portrait has no right-hand column: the album text spans nearly the full width
+   under the cover, so the lyrics panel takes the same box. */
+.music-app[data-layout="portrait"] .music-lyrics-panel {
+  --lyrics-top: 50%;
+  --lyrics-left: clamp(22px, 4vw, 42px);
+  --lyrics-right: clamp(18px, 4vw, 42px);
+  --lyrics-bottom: 28px;
+  --lyrics-padding: 14px 19px 14px 14px;
 }
 .lyrics-toggle {
   align-self: flex-start;
@@ -2371,17 +2408,20 @@
 .lyric-list {
   height: 100%;
   margin: 0;
-  /* No head/tail spacer: the active line is centred by scrollTop, and a spacer
-     would push the first lines out of view and pin scrolling near the top. */
-  padding: 0;
+  /* Fixed head and tail room, in viewport terms rather than a measured
+     percentage: it gives the browser somewhere to centre the first and last
+     lines, and it does not collapse when the panel is measured mid-layout. */
+  padding-block: clamp(140px, 30vh, 340px);
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  /* No CSS smooth scrolling: the follow animation sets scrollTop every frame,
+     and smooth behaviour would animate each of those writes in turn. */
 }
 .lyric-line {
   display: block;
   width: 100%;
-  padding: 9px 12px;
+  padding: 10px 12px;
   margin: 0;
   border: 0;
   background: none;
@@ -2393,7 +2433,11 @@
   text-wrap: pretty;
   overflow-wrap: anywhere;
   cursor: pointer;
-  transition: color 140ms ease, font-size 140ms ease;
+  /* Colour only. Animating the font size changed the row height while the
+     follow animation was measuring row positions, which made the scroll jitter
+     and overshoot; the active line is emphasised with a transform instead. */
+  transition: color 140ms ease, transform 140ms ease;
+  transform-origin: left center;
 }
 .lyric-line:hover,
 .lyric-line.active {
@@ -2402,6 +2446,8 @@
 .lyric-line.active {
   color: var(--accent);
   font-weight: 600;
+  /* A transform does not change layout, so row geometry stays stable. */
+  transform: scale(1.04);
 }
 .lyric-list-empty {
   display: grid;

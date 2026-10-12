@@ -55,7 +55,7 @@ import { MusicBoot } from "./music-boot";
 import { viewportLayout } from "./viewport-layout";
 import { probeGpuCapability } from "./gpu-capability";
 import { BUILD_VERSION } from "./build-version";
-import { activeLyricIndex, lyricCentreOffset, parseLrc, type LyricLine } from "./lyrics";
+import { activeLyricIndex, parseLrc, type LyricLine } from "./lyrics";
 
 type Theme = "day" | "dusk" | "night";
 type Panel = "library" | "search" | "settings" | "playlists" | "queue" | null;
@@ -204,7 +204,6 @@ let lyricStateText = "尚未载入歌词。";
 // -2 is the "force a repaint after a track change" sentinel: the first line of a
 // new track must be applied even when its index happens to equal the old one.
 let activeLyric = -2;
-let lyricScrollFrame = 0;
 let lyricClockFrame = 0;
 const player = new MusicPlayer({
   volume: preferences.volume,
@@ -978,6 +977,9 @@ function renderDetail() {
     preferences.reduced || scene?.decryptionFrame.phase === "clear",
   );
   updatePlayingRows();
+  // The tab content decides where the first track row sits, so re-measure the
+  // collapsed-card alignment after every detail render and tab switch.
+  syncLyricsPanelAlignment();
 }
 function trackList(a: MusicAlbum, discs: number) {
   if (!a.tracks.length)
@@ -1466,21 +1468,21 @@ function setLyricsCollapsed(collapsed: boolean) {
   // re-centre so resuming does not scroll up from wherever the list sat.
   syncLyricsPanel();
   if (!collapsed) {
-    lyricScrollFrame && cancelAnimationFrame(lyricScrollFrame);
-    lyricScrollFrame = 0;
     activeLyric = -2;
     syncLyricsPosition(player.playbackTime);
   }
 }
 
 async function loadLyrics(track: MusicTrack | null) {
-  lyricTrackId = track?.id ?? null;
+  // Align the panel with the album column it replaces, and the collapsed card
+  // with that column's first track row. Both are measured from the live layout
+  // rather than written down, because --detail-content-top and the headings are
+  // all responsive: a fixed offset is wrong at other sizes.
+  syncLyricsPanelAlignment();  lyricTrackId = track?.id ?? null;
   const requestVersion = ++lyricRequestVersion;
   lyricLines = [];
   lyricStateText = track ? "正在查找与歌曲同名的 .lrc 文件…" : "尚未载入歌词。";
   activeLyric = -2;
-  lyricScrollFrame && cancelAnimationFrame(lyricScrollFrame);
-  lyricScrollFrame = 0;
   renderLyricRows();
   updateLyricFocus(-1);
   syncLyricsPanel();
@@ -1492,8 +1494,6 @@ async function loadLyrics(track: MusicTrack | null) {
     lyricLines = result.found ? parseLrc(result.text) : [];
     lyricStateText = !result.found ? "歌曲所在文件夹里没有同名 LRC 歌词。" : lyricLines.length ? "点击歌词可跳转到对应时间。" : "LRC 文件没有可识别的时间戳歌词。";
     activeLyric = -2;
-    lyricScrollFrame && cancelAnimationFrame(lyricScrollFrame);
-    lyricScrollFrame = 0;
     renderLyricRows();
     updateLyricFocus(-1);
     syncLyricsPanel();
@@ -1527,12 +1527,9 @@ function renderLyricRows() {
     fragment.append(row);
   });
   list.append(fragment);
-  syncLyricListPadding();
-  // Re-measure once layout has settled, then keep it correct across resizes.
+  // Re-centre once the new rows have been laid out.
   requestAnimationFrame(() => {
-    syncLyricListPadding();
-    const current = list.querySelector<HTMLElement>(".lyric-line.active");
-    if (current) centerLyricLine(list, current, true);
+    centerLyricLine(true);
   });
 }
 
@@ -1561,78 +1558,118 @@ function updateLyricFocus(index: number) {
 }
 
 // Follow the song, but yield to the viewer: a manual scroll or a click pauses
-// the auto-centring until they stop interacting.
-let lyricFollowHold = 0;
-let lyricFollowPaused = false;
+// the auto-centring, which resumes once they stop interacting.
+//
+// This is a single deadline rather than a pause flag plus a timer. The earlier
+// flag/timer pair could be left paused forever: whichever handler ran last
+// cleared the timer without restoring the flag, and the recorded samples showed
+// exactly that (held=true, pending=false, permanently).
+let lyricFollowUntil = 0;
+let lyricFollowResumeTimer = 0;
+const LYRIC_FOLLOW_RESUME_MS = 4000;
+function lyricFollowReduced() {
+  return preferences.reduced || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+/** Defer the follow, and re-centre the moment the deferral expires. */
 function holdLyricFollow() {
-  lyricFollowPaused = true;
-  lyricFollowHold = window.setTimeout(() => {
-    lyricFollowPaused = false;
-  }, 4000);
-}
-function pauseLyricFollow() {
-  lyricFollowPaused = true;
-  if (lyricFollowHold) window.clearTimeout(lyricFollowHold);
-  lyricFollowHold = 0;
-}
-function resumeLyricFollow() {
-  lyricFollowPaused = false;
-  if (lyricFollowHold) window.clearTimeout(lyricFollowHold);
-  lyricFollowHold = 0;
+  lyricFollowUntil = Date.now() + LYRIC_FOLLOW_RESUME_MS;
+  window.clearTimeout(lyricFollowResumeTimer);
+  lyricFollowResumeTimer = window.setTimeout(() => {
+    lyricFollowResumeTimer = 0;
+    if (activeLyric >= 0) centerLyricLine(false);
+  }, LYRIC_FOLLOW_RESUME_MS + 40);
 }
 for (const event of ["wheel", "pointerdown", "touchstart"] as const)
-  $("#lyric-list").addEventListener(event, pauseLyricFollow, { passive: true });
+  $("#lyric-list").addEventListener(event, holdLyricFollow, { passive: true });
 $("#lyric-list").addEventListener("pointerup", holdLyricFollow, { passive: true });
 $("#lyric-list").addEventListener("pointercancel", holdLyricFollow, { passive: true });
 $("#lyric-list").addEventListener("keydown", holdLyricFollow);
-// The head/tail room depends on the panel height, so it is re-measured whenever
-// the panel changes size rather than being guessed from the panel's width.
-new ResizeObserver(() => {
-  syncLyricListPadding();
-  if (activeLyric < 0 || preferences.lyricsCollapsed) return;
-  const list = document.querySelector<HTMLElement>("#lyric-list");
-  const line = list?.querySelector<HTMLElement>(`.lyric-line[data-lyric-index="${activeLyric}"]`);
-  if (list && line) centerLyricLine(list, line, true);
-}).observe($("#music-lyrics-panel"));
 
-// The first and last lines can only reach the middle of the panel if the list
-// carries matching head and tail room. A percentage pad would resolve against
-// the panel's width, so the room is measured from the list's own height.
-function syncLyricListPadding() {
-  const list = document.querySelector<HTMLElement>("#lyric-list");
-  if (!list) return;
-  const line = list.querySelector<HTMLElement>(".lyric-line");
-  const lineHeight = line?.offsetHeight || 34;
-  const room = Math.max(0, Math.round((list.clientHeight - lineHeight) / 2));
-  list.style.paddingTop = `${room}px`;
-  list.style.paddingBottom = `${room}px`;
+function activeLyricLine(): HTMLElement | null {
+  if (activeLyric < 0) return null;
+  return document.querySelector<HTMLElement>(`#lyric-list .lyric-line[data-lyric-index="${activeLyric}"]`);
 }
 
-function centerLyricLine(container: HTMLElement, line: HTMLElement, reduced: boolean) {
-  const start = container.scrollTop;
-  const rowTop = line.getBoundingClientRect().top - container.getBoundingClientRect().top + start;
-  const target = lyricCentreOffset({
-    lineTop: rowTop,
-    lineHeight: line.offsetHeight,
-    viewportHeight: container.clientHeight,
-    scrollHeight: container.scrollHeight,
-  });
-  if (reduced || Math.abs(target - start) < 1) {
-    container.scrollTop = target;
+/**
+ * The lyrics panel stands in for the album column, so it takes that column's
+ * measured top edge, and the collapsed card drops to the column's big album
+ * title — the album name heading directly under the overline. Measuring keeps
+ * both correct across the responsive `--detail-content-top` steps and the
+ * responsive heading size, which a hand-written offset is not.
+ */
+function syncLyricsPanelAlignment() {
+  const panel = document.querySelector<HTMLElement>("#music-lyrics-panel");
+  const column = document.querySelector<HTMLElement>("#album-detail-content");
+  const stage = document.querySelector<HTMLElement>("#stage");
+  if (!panel || !column || !stage) return;
+  const stageHeight = stage.clientHeight;
+  const columnTop = Math.round(column.getBoundingClientRect().top);
+  const albumTitle = column.querySelector<HTMLElement>(":scope > h1");
+  // The panel starts level with the album's big title, not with the column's
+  // top edge: the overline above it is not part of the lyrics area.
+  const titleOffset = albumTitle
+    ? Math.round(albumTitle.getBoundingClientRect().top - columnTop)
+    : 0;
+  panel.style.setProperty("--lyrics-top", `${columnTop + titleOffset}px`);
+  // The collapsed card is aligned to that same title already, because its own
+  // `top` is the panel top plus this offset — so this must stay 0 and not
+  // double-count the overline.
+  panel.style.setProperty("--lyrics-collapsed-offset", "0px");
+  // The expanded panel stops at the rule that closes the track list — the
+  // bottom border of its last row — which is the line the album column's own
+  // content ends on. Never run past the column itself.
+  const lastTrack = column.querySelector<HTMLElement>("#album-tab-content .track-item:last-of-type");
+  const columnBottom = Math.round(column.getBoundingClientRect().bottom);
+  const contentBottom = lastTrack
+    ? Math.round(lastTrack.getBoundingClientRect().bottom)
+    : Math.round(column.querySelector<HTMLElement>(".producer-section")?.getBoundingClientRect().top ?? columnBottom);
+  const limit = Math.min(contentBottom, columnBottom);
+  panel.style.setProperty("--lyrics-bottom", `${Math.max(0, stageHeight - limit)}px`);
+  // No width cap: the album switcher sits above the panel's top edge, so
+  // spanning the column's full width cannot cover it.
+}
+// Both measurements are layout-dependent, so keep them correct on resize.
+let lyricAlignTimer = 0;
+window.addEventListener("resize", () => {
+  window.clearTimeout(lyricAlignTimer);
+  lyricAlignTimer = window.setTimeout(syncLyricsPanelAlignment, 150);
+});
+
+let lyricScrollFrame = 0;
+// Smooth scrolling here is hand-rolled on purpose. scrollIntoView({smooth}) is
+// retargeted while the previous animation is still running at every line change,
+// which reads as "jump down, then drift back". Owning the scrollTop animation
+// makes each move a single continuous glide.
+function centerLyricLine(snap: boolean) {
+  const list = document.querySelector<HTMLElement>("#lyric-list");
+  if (!list || preferences.lyricsCollapsed) return;
+  const line = activeLyricLine();
+  if (!line) return;
+  const start = list.scrollTop;
+  const lineTop = line.getBoundingClientRect().top - list.getBoundingClientRect().top + start;
+  const max = Math.max(0, list.scrollHeight - list.clientHeight);
+  const target = Math.max(0, Math.min(max,
+    lineTop - Math.max(0, (list.clientHeight - line.offsetHeight) / 2),
+  ));
+  if (lyricScrollFrame) cancelAnimationFrame(lyricScrollFrame);
+  lyricScrollFrame = 0;
+  if (snap || lyricFollowReduced() || Math.abs(target - start) < 2) {
+    list.scrollTop = target;
     return;
   }
-  const duration = Math.min(520, 240 + Math.abs(target - start) * 0.25);
+  // Short and front-loaded: the lyric must look settled as the line starts, not
+  // a third of a second later, which reads as the text lagging the song.
+  const duration = Math.min(300, 150 + Math.abs(target - start) * 0.1);
   const started = performance.now();
-  const scroll = (now: number) => {
+  const step = (now: number) => {
     lyricScrollFrame = 0;
     if (!line.isConnected) return;
     const progress = Math.min(1, (now - started) / duration);
-    const eased = progress < 0.5
-      ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
-    container.scrollTop = start + (target - start) * eased;
-    if (progress < 1) lyricScrollFrame = requestAnimationFrame(scroll);
+    const eased = 1 - (1 - progress) ** 3;
+    list.scrollTop = start + (target - start) * eased;
+    if (progress < 1) lyricScrollFrame = requestAnimationFrame(step);
   };
-  lyricScrollFrame = requestAnimationFrame(scroll);
+  lyricScrollFrame = requestAnimationFrame(step);
 }
 
 function syncLyricsPosition(currentTime: number) {
@@ -1640,12 +1677,8 @@ function syncLyricsPosition(currentTime: number) {
   if (index === activeLyric) return;
   activeLyric = index;
   updateLyricFocus(index);
-  if (index < 0 || preferences.lyricsCollapsed || lyricFollowPaused) return;
-  const list = document.querySelector<HTMLElement>("#lyric-list");
-  const line = list?.querySelector<HTMLElement>(`.lyric-line[data-lyric-index="${index}"]`);
-  if (!list || !line) return;
-  lyricScrollFrame && cancelAnimationFrame(lyricScrollFrame);
-  centerLyricLine(list, line, preferences.reduced || window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  if (index < 0 || Date.now() < lyricFollowUntil) return;
+  centerLyricLine(false);
 }
 
 function syncLyricsPanel() {
