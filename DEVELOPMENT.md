@@ -134,3 +134,77 @@ git merge main
 ```
 
 **你自己不需要敲这些命令**，交给我就行。写在这里是为了让你知道项目里存在这些动作，以及它们的作用。
+
+---
+
+## 9. 交接说明（2026-10-13，给下一个会话的我）
+
+> 这一节是**给 AI 助手看的**，不是给你看的。你不需要读。但如果你换了工具、或我这边失去了上下文，打开这里就能接上。
+
+### 当前进度
+
+**分支**：`rhine-lab`。**已提交**到 `6800ee1`（歌词面板改造 + 首轮修复）。
+
+**仓库里有 3 个文件未提交**，是歌词 bug 的**第二轮修复尝试**，尚未验证：
+
+| 文件 | 未提交改动是什么 |
+|---|---|
+| `src/music-app.ts` | 把居中逻辑从「自己算 scrollTop + 缓动」改成**浏览器原生** `line.scrollIntoView({ block: "center", behavior: "smooth" })`；**并包含临时诊断代码**（`reportLyricDiagnostics`、`lyricDiagnostics`，都有 `TEMPORARY` 注释） |
+| `src/music.css` | 歌词列表改用**固定留白** `padding-block: clamp(140px, 30vh, 340px)`（替换掉之前会崩的运行时测量方案） |
+| `scripts/music-server.mjs` | 加了临时端点 `POST /api/diagnostics/lyrics`，把页面测量结果追加写入 `work/lyric-diagnostics.log` |
+
+### 歌词 bug 的已知事实（重要，别重复排查）
+
+**症状**：播放带歌词的歌时，右侧面板是**白纸一片**（或歌词平铺、不滚动、当前句不居中）。
+
+**已用真实数据定位到的根因**（来自诊断上报）：
+
+```
+panel:  y=-1705  h=2611          ← 面板被撑到 2611px，比窗口高得多
+list:   clientHeight=2535  scrollHeight=2535  scrollTop=0
+```
+
+- **列表的 `clientHeight` 等于 `scrollHeight`** → 没有形成滚动视口 → `scrollTop` 恒为 0 → **无法滚动居中**
+- 当时面板上下留白各 287px（按容器高度算的），数值本身合理
+- **所以问题不是居中公式，而是面板/列表没有被窗口高度约束住**
+
+**已修复但仍需确认**：把留白改成固定 `clamp()`、居中交给浏览器原生 `scrollIntoView`。**这次改动尚未经过用户目视验证。**
+
+**已排除**：留白数值算错、`scrollIntoView` 多祖先滚动、`lyricCenterOffset` 公式（有 6 项测试且 672 组合等价验证）。
+
+### 恢复验证环境的步骤
+
+1. 复制用户曲库索引到验证目录（**不要动 `%LOCALAPPDATA%\Rhine Music\music-data-v3`**）：
+   ```powershell
+   $live = "$env:LOCALAPPDATA\Rhine Music\music-data-v3"
+   $test = 'B:\RHINE LAB_DEV\_verify\music-data'
+   Copy-Item "$live\config.json","$live\genre-rules.json","$live\library-index.json","$live\playlists.json" -Destination $test -Force
+   Copy-Item "$live\artwork" -Destination "$test\artwork" -Recurse -Force
+   ```
+2. 构建并启动服务（**需要代理**，见下）：
+   ```powershell
+   npm run build
+   $env:MUSIC_DATA_DIR = 'B:\RHINE LAB_DEV\_verify\music-data'
+   $env:PORT = '8099'
+   node scripts/music-server.mjs
+   ```
+3. 测试歌曲：**`林子汐 - NUNA3.0`**（用户曲库里**唯一**有 `.lrc` 的一首，49 行）
+4. 让用户在 http://127.0.0.1:8099/ 播放它，页面会**自动上报**面板测量数据到 `work/lyric-diagnostics.log`
+5. 用 `B:\RHINE LAB_DEV\_verify\read-diagnostics.mjs` 解析该日志
+
+### 环境注意事项
+
+- **代理必须开着**：`127.0.0.1:10810`（Whale）。它中途关闭过一次，导致 GitHub 访问出现**假 404**，我曾据此错误判断"仓库不存在"。**代理关闭时任何 GitHub 结论都不可信。**
+- `github.com` **直连超时**，`api.github.com` 直连可通——**不要用单一通道的失败推断仓库不存在**
+- 验证脚本（含 `verify-objective.mjs`、`verify-panel.mjs`、`verify-scroll.mjs`、`read-diagnostics.mjs`）都放在仓库**之外**的 `B:\RHINE LAB_DEV\_verify\`
+
+### 不要在未询问用户的情况下做的事
+
+- 不要绕过 DSH 插件的版本兼容检查
+- 不要推送任何东西到 GitHub（用户要求先不推）
+- 不要扩大改动范围：背景虚化、逐字歌词、专辑信息收纳都**已明确留给后续单独迭代**
+
+### 诊断代码的清理
+
+那三处 `TEMPORARY` 诊断代码是**临时脚手架**。等歌词 bug 确认修好后**应当移除**：`reportLyricDiagnostics`、`lyricDiagnostics`、`lyricDiagnostics` 在 `Object.assign(window, ...)` 里的条目，以及 `scripts/music-server.mjs` 的 `/api/diagnostics/lyrics` 路由。
+
