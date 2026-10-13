@@ -255,6 +255,7 @@ git merge main
 - 版本号 **`0.7.0-dev.4`**，由 `node scripts/version.mjs --allocate-dev` 分配，自动同步到 7 处（`version.json`、`package.json`、`package-lock.json`、`README.md`、`src/build-version.ts`、`app.manifest`、`DesktopProgram.cs`）。**不要手改版本号。**
   - 该命令会在 `CHANGELOG.md` 末尾插入一条占位条目，**必须手动补全内容**。README 会引用 `RELEASE_NOTES_<版本>.md`，**该文件要自己写**。
   - 版本的划分：`0.7.0-dev.3` = 纯显示修复；`0.7.0-dev.4` = 在 dev.3 之上新增歌词字号与对齐两个开关。两个条目**分开写**，别把功能塞进修复条目。
+- **打包 EXE 可用**（2026-10-13）：`node scripts/…` 不用管，直接跑 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -WebView2Dir <repo>\sdk\lib -RuntimeTemplateDir <repo>\work\runtime-template -OutputDirectory "B:\RHINE LAB_DEV\outputs"`。产物在 `B:\RHINE LAB_DEV\outputs\`（README/构建文档写的"工作区根目录 outputs"在本机会解析到 `B:\`，所以显式传 `-OutputDirectory`）。`work\runtime-template\NODE-LICENSE.txt` 是本机 Node 安装缺失的许可文件，已在 .gitignore 的 work/ 下，别删。构建脚本已改为兼容 Windows PowerShell 5.1（原脚本要 PowerShell 7）。失败一次烧一个版本号是正常安全机制（dev.5、dev.6 就是这么烧掉的）。
 - `CHANGELOG.md` 与 `RELEASE_NOTES_0.7.0-dev.4.md` 已按第 5 节的规范写好。CHANGELOG 条目从旧到新排在**文件末尾**（注意顺序）。
 - **已推送到 GitHub**（2026-10-13，用户要求）：`main`（→ `7071b16`）和 `rhine-lab`（→ `990ebfb`）都已推到 `origin`，`rhine-lab` 已设好上游跟踪。今后每次交付默认推送。
 - **封面修复已反馈上游**：从 `lzxac:main` 向 `Bong712:main` 发了 PR（[Bong712/Rhine-Music-Windows#4](https://github.com/Bong712/Rhine-Music-Windows/pull/4)，2026-10-13，mergeable 状态 clean）。等 Bong712 处理；他若提修改意见，改 `main` 分支的代码即可（PR 会自动带上）。

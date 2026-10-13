@@ -79,7 +79,7 @@ try {
   }
 
   $packageJson = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json
-  $packageLock = Get-Content -LiteralPath (Join-Path $projectRoot 'package-lock.json') -Raw | ConvertFrom-Json -AsHashtable
+  $packageLockRaw = Get-Content -LiteralPath (Join-Path $projectRoot 'package-lock.json') -Raw
   $buildVersionSource = Get-Content -LiteralPath (Join-Path $projectRoot 'src\build-version.ts') -Raw
   $desktopSource = Get-Content -LiteralPath (Join-Path $projectRoot 'DesktopProgram.cs') -Raw
   $manifestSource = Get-Content -LiteralPath (Join-Path $projectRoot 'app.manifest') -Raw
@@ -87,8 +87,8 @@ try {
   $escapedNumericVersion = [regex]::Escape($numericVersion)
   $metadataChecks = @(
     ($packageJson.version -eq $version)
-    ($packageLock['version'] -eq $version)
-    ($packageLock['packages']['']['version'] -eq $version)
+    ($packageLockRaw -match ('(?m)^ {2}"version":\s*"' + $escapedVersion + '",\r?$'))
+    ($packageLockRaw -match ('"packages":\s*\{\s*"":\s*\{[^{}]*"version":\s*"' + $escapedVersion + '"'))
     ($buildVersionSource -match ('BUILD_VERSION = "' + $escapedVersion + '";'))
     ($desktopSource -match ('AssemblyFileVersion\("' + $escapedNumericVersion + '"\)'))
     ($desktopSource -match ('AssemblyInformationalVersion\("' + $escapedVersion + '"\)'))
