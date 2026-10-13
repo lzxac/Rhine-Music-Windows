@@ -1,4 +1,4 @@
-# 0.7.0-dev.7 发行说明（2026-10-13）
+# 0.7.0-dev.5 发行说明（2026-10-13）
 
 **Rhine Music Desktop · Rhine Lab 版 · 第一个打包的 Windows 安装包**
 
@@ -22,18 +22,18 @@
 
 ## 安装与使用
 
-1. 双击 `Rhine-Music-Desktop-0.7.0-dev.7.exe`（无需安装器，单文件运行）
-2. 首次启动会解压资源到 `%LOCALAPPDATA%\Rhine Music\app-v0.7.0-dev.7`，稍等片刻
+1. 双击 `Rhine-Music-Desktop-0.7.0-dev.5.exe`（无需安装器，单文件运行）
+2. 首次启动会解压资源到 `%LOCALAPPDATA%\Rhine Music\app-v0.7.0-dev.5`，稍等片刻
 3. 需要 Windows 10/11 和 Microsoft Edge WebView2 运行时（Windows 10/11 一般自带）
 4. 曲库数据保存在 `%LOCALAPPDATA%\Rhine Music\music-data-v3`，与程序版本分开——**升级程序不会丢曲库**；如果打开后曲库是空的，在"音乐库"里添加一次音乐文件夹即可
 5. F11 切换全屏
 
 ## 校验
 
-- SHA-256：`8343bf2184b43c87f1067f066b4d6e8086de6960b8964d0774d522cc914f7d1c`
-- 完整校验清单见同目录 `SHA256SUMS.txt` 与 `release-manifest-0.7.0-dev.7.json`
+- SHA-256：`05b62799c9d7132f7c571657de690d5452d1de8b04dc418daba31186f23fbb03`
+- 完整校验清单见同目录 `SHA256SUMS.txt` 与 `release-manifest-0.7.0-dev.5.json`
 
 ## 备注
 
 - 4K 60FPS 正式验收尚未执行（开发版常态，不影响使用）
-- `0.7.0-dev.5`、`dev.6` 两个序号因构建环境问题预留后未出包，详见 `CHANGELOG.md`
+- 开发版本号保持连续：构建失败会先回滚版本号再重试，不会跳号（`CHANGELOG.md` 有记录）

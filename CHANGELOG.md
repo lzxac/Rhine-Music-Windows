@@ -538,16 +538,9 @@ Two additions on top of `0.7.0-dev.3`'s display fixes.
 
 ## 0.7.0-dev.5 (2026-10-13)
 
-- Version number reserved but never published: the first packaging attempt failed because `scripts/build-windows.ps1` requires PowerShell 7 (`ConvertFrom-Json -AsHashtable`) and only Windows PowerShell 5.1 was available. No artifacts were produced.
-
-## 0.7.0-dev.6 (2026-10-13)
-
-- Version number reserved but never published: the second packaging attempt failed on a package-lock metadata check (a faulty regex in the compatibility patch). No artifacts were produced.
-
-## 0.7.0-dev.7 (2026-10-13)
-
-- First packaged Windows build of the Rhine Lab line: single-file x64 `Rhine-Music-Desktop-0.7.0-dev.7.exe` (frontend, local music service and WinForms launcher embedded).
+- First packaged Windows build of the Rhine Lab line: single-file x64 `Rhine-Music-Desktop-0.7.0-dev.5.exe` (frontend, local music service and WinForms launcher embedded).
 - No application-code changes since `0.7.0-dev.4`; everything between dev.4 and this build is documentation (README, handoff notes, upstream PR record) and build tooling.
 - `scripts/build-windows.ps1` now also runs on Windows PowerShell 5.1: the `ConvertFrom-Json -AsHashtable` call was replaced with regex checks of the same package-lock fields.
 - Packaging now takes `NODE-LICENSE.txt` from `-RuntimeTemplateDir` because this machine's Node.js install ships without a license file.
+- Packaging failures now roll the version number back before the next attempt, so development versions stay contiguous (three earlier attempts on 2026-10-13 failed during tooling setup and were renumbered into this release; nothing was ever published under a skipped number).
 - Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.
