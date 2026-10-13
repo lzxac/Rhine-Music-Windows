@@ -4,7 +4,7 @@
 
 本仓库是 [lzxac](https://github.com/lzxac) 维护的**衍生版（Rhine Lab 版）**：在 Bong712 的 Windows 版基础上修复 bug、开发自己的功能。能反馈给上游的修复走 `main` 分支，自有功能走 `rhine-lab` 分支。
 
-**当前版本：0.7.0-dev.6** · **维护者：** [lzxac](https://github.com/lzxac)（Rhine Lab 衍生版）
+**当前版本：0.7.0-dev.7** · **维护者：** [lzxac](https://github.com/lzxac)（Rhine Lab 衍生版）
 
 ## Rhine Lab 版的更新内容
 
@@ -41,9 +41,9 @@
 
 ## 发行说明
 
-当前发行使用 `0.7.0-dev.6` 版本号。应用界面显示实际的 WebView2 / WebGL 2 图形路径及 Bong712 维护者信息。帧率由具体设备的显示器、显卡和驱动决定；项目不以开发原型数据代替最终用户设备上的性能承诺。
+当前发行使用 `0.7.0-dev.7` 版本号。应用界面显示实际的 WebView2 / WebGL 2 图形路径及 Bong712 维护者信息。帧率由具体设备的显示器、显卡和驱动决定；项目不以开发原型数据代替最终用户设备上的性能承诺。
 
-详细改动见 [发行说明](RELEASE_NOTES_0.7.0-dev.6.md) 和 [CHANGELOG.md](CHANGELOG.md)。
+详细改动见 [发行说明](RELEASE_NOTES_0.7.0-dev.7.md) 和 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 开发与构建
 

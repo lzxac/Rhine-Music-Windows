@@ -551,3 +551,9 @@ Two additions on top of `0.7.0-dev.3`'s display fixes.
 - The page sends `rhine-window:min|max|close|drag` over the WebView2 host bridge: dragging the top strip or the empty header space moves the window, double-clicking them toggles maximize, and three small buttons at the right end of the header minimize, maximize/restore and close. F11 fullscreen behaviour is unchanged.
 - Browser and PWA builds are untouched: every window-control affordance is gated behind `data-host-window`, which is only set when the WebView2 host bridge exists.
 - Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.
+
+## 0.7.0-dev.7 (2026-10-13)
+
+- Fix the light strip that appeared around the client on the first restore from maximized. The maximized inset in `WM_NCCALCSIZE` was keyed on WinForms' `WindowState`, which lags behind the rects in the message during maximize/restore transitions; the inset was therefore applied to restored bounds and the light form background showed through. The inset is now decided from geometry: it applies only when the proposed window rect actually covers the nearest monitor's work area (the approach used by Chromium and Windows Terminal). Verified programmatically: after `SC_RESTORE` the top row of the restored window reads dark page content, not the form background.
+- Packaging lessons recorded: `scripts/build-windows.ps1` publishes only after all native compilation succeeds, and two mid-development compile failures burned dev numbers before the rollback procedure was applied.
+- Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.

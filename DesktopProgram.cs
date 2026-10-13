@@ -18,15 +18,15 @@ using Microsoft.Web.WebView2.Core;
 [assembly: AssemblyTitle("Rhine Music Desktop")]
 [assembly: AssemblyProduct("Rhine Music")]
 [assembly: AssemblyDescription("Rhine Music independent Windows desktop player")]
-[assembly: AssemblyVersion("0.7.0.6")]
-[assembly: AssemblyFileVersion("0.7.0.6")]
-[assembly: AssemblyInformationalVersion("0.7.0-dev.6")]
+[assembly: AssemblyVersion("0.7.0.7")]
+[assembly: AssemblyFileVersion("0.7.0.7")]
+[assembly: AssemblyInformationalVersion("0.7.0-dev.7")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Bong712")]
 
 internal static class Program
 {
     private const string ProductName = "Rhine Music";
-    private const string AppVersion = "0.7.0-dev.6";
+    private const string AppVersion = "0.7.0-dev.7";
     private static int startedProcessId;
     private const uint CreateNoWindow = 0x08000000;
     private const uint StartfUseShowWindow = 0x00000001;
@@ -558,14 +558,18 @@ internal sealed class DesktopWindow : Form
     {
         if (message.Msg == WmNcCalcSize && message.WParam != IntPtr.Zero)
         {
-            if (WindowState == FormWindowState.Maximized && !fullscreen)
+            // Decide from geometry, not from WindowState: during the
+            // maximize/restore transitions WinForms' WindowState lags behind
+            // the rects in this message, and keying the inset on it applied
+            // the maximized inset to restored bounds (a light strip around
+            // the client on the first restore). Inset only when the proposed
+            // window rect really covers the monitor's work area, i.e. it is
+            // the maximized overhang case.
+            var regions = (NcCalcSizeRegions)Marshal.PtrToStructure(
+                message.LParam, typeof(NcCalcSizeRegions));
+            if (!fullscreen && CoversWorkArea(regions.Region0))
             {
-                // A maximized borderless window would otherwise overhang the
-                // screen by the hidden frame on every side; push the client
-                // back inside the monitor.
                 var frame = GetSystemMetrics(SmSizeFrame) + GetSystemMetrics(SmPaddedBorder);
-                var regions = (NcCalcSizeRegions)Marshal.PtrToStructure(
-                    message.LParam, typeof(NcCalcSizeRegions));
                 regions.Region0.Left += frame;
                 regions.Region0.Top += frame;
                 regions.Region0.Right -= frame;
@@ -622,6 +626,17 @@ internal sealed class DesktopWindow : Form
         }
     }
 
+    private bool CoversWorkArea(Rect rect)
+    {
+        var monitor = MonitorFromWindow(Handle, MonitorDefaultToNearest);
+        var info = new MonitorInfo { Size = Marshal.SizeOf(typeof(MonitorInfo)) };
+        if (!GetMonitorInfoW(monitor, ref info)) return false;
+        return rect.Left <= info.Work.Left && rect.Top <= info.Work.Top
+            && rect.Right >= info.Work.Right && rect.Bottom >= info.Work.Bottom;
+    }
+
+    private const int MonitorDefaultToNearest = 2;
+
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect
     {
@@ -632,16 +647,32 @@ internal sealed class DesktopWindow : Form
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public Rect Monitor;
+        public Rect Work;
+        public int Flags;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr window, int flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfoW(IntPtr monitor, ref MonitorInfo info);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ReleaseCapture();
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct NcCalcSizeRegions
     {
         public Rect Region0;
         public Rect Region1;
         public Rect Region2;
     }
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ReleaseCapture();
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr SendMessageW(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
