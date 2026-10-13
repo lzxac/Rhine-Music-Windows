@@ -258,6 +258,7 @@ git merge main
 - `CHANGELOG.md` 与 `RELEASE_NOTES_0.7.0-dev.4.md` 已按第 5 节的规范写好。CHANGELOG 条目从旧到新排在**文件末尾**（注意顺序）。
 - **已推送到 GitHub**（2026-10-13，用户要求）：`main`（→ `7071b16`）和 `rhine-lab`（→ `990ebfb`）都已推到 `origin`，`rhine-lab` 已设好上游跟踪。今后每次交付默认推送。
 - **封面修复已反馈上游**：从 `lzxac:main` 向 `Bong712:main` 发了 PR（[Bong712/Rhine-Music-Windows#4](https://github.com/Bong712/Rhine-Music-Windows/pull/4)，2026-10-13，mergeable 状态 clean）。等 Bong712 处理；他若提修改意见，改 `main` 分支的代码即可（PR 会自动带上）。
+- **GitHub 仓库默认分支是 `rhine-lab`**（2026-10-13 应用户要求从 `main` 改过来），所以仓库首页展示的是 rhine-lab 的 README（含"Rhine Lab 版的更新内容"一节）。README 里的"当前版本"行由 `scripts/version.mjs` 重写，已改成维护者 lzxac 的格式，别改回去。给上游的 PR 只含 main 上的代码提交，README 改动只在 rhine-lab，不会互相污染。
 - `scripts/check-music-scene.mjs` 里有 4 条断言原本要求"面板必须不透明/有投影/有毛玻璃"，**已改写成对新设计的断言**（不得有背景/投影/毛玻璃、必须保留透明占位边框、歌词列表不得预留滚动条槽、隐藏范围只针对被覆盖那一块且用 `visibility`）。别改回去。
 
 ### 恢复验证环境
