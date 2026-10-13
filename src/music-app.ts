@@ -395,6 +395,94 @@ if (hostBridge) {
   const sendWindowAction = (action: string) => hostBridge.postMessage("rhine-window:" + action);
   const isInteractive = (target: EventTarget | null) =>
     target instanceof Element && Boolean(target.closest("button, a, input, select, .theme-switch, .window-controls"));
+  // The frameless window leaves no non-client border for Windows to hit, and the
+  // web view covers the whole client area, so the shell never sees the pointer at
+  // the window edge. Detect the edge here and ask the host to start the native
+  // resize loop, exactly like the drag request above.
+  const resizeZone = 6;
+  const edgeDiagnostics = new URLSearchParams(location.search).get("edgediag") === "1";
+  let lastReportedEdge: string | null | undefined;
+  const describeElement = (target: EventTarget | null) => {
+    const element = target as HTMLElement | null;
+    if (!element) return "none";
+    const cls = typeof element.className === "string" ? element.className.split(" ").filter(Boolean).slice(0, 2).join(".") : "";
+    return element.tagName.toLowerCase() + (cls ? "." + cls : "") + (element.id ? "#" + element.id : "");
+  };
+  const edgeAt = (event: MouseEvent): string | null => {
+    // the window controls live in the corner and must stay clickable
+    if (event.target instanceof Element && event.target.closest(".window-controls")) return null;
+    const vertical = event.clientY <= resizeZone ? "top" : event.clientY >= window.innerHeight - resizeZone ? "bottom" : "";
+    const horizontal = event.clientX <= resizeZone ? "left" : event.clientX >= window.innerWidth - resizeZone ? "right" : "";
+    if (vertical && horizontal) return `${vertical}-${horizontal}`;
+    return vertical || horizontal || null;
+  };
+  const resizeCursors: Record<string, string> = {
+    left: "ew-resize",
+    right: "ew-resize",
+    top: "ns-resize",
+    bottom: "ns-resize",
+    "top-left": "nwse-resize",
+    "bottom-right": "nwse-resize",
+    "top-right": "nesw-resize",
+    "bottom-left": "nesw-resize",
+  };
+  stage.addEventListener("mousemove", (event) => {
+    const edge = edgeAt(event);
+    if (edgeDiagnostics && edge !== lastReportedEdge) {
+      lastReportedEdge = edge;
+      sendWindowAction(
+        `diag-edge-${edge ?? "none"}-${window.innerWidth}x${window.innerHeight}-${event.clientX},${event.clientY}-${describeElement(event.target)}`,
+      );
+    }
+    // The 3D canvas sets its own cursor while hovering the scene, so a cursor on
+    // the root alone would be overridden. The stylesheet takes over inside the
+    // edge zone (see the data-window-edge rules in music.css).
+    if (edge) stage.dataset.windowEdge = edge;
+    else delete stage.dataset.windowEdge;
+    document.documentElement.style.cursor = edge ? resizeCursors[edge] : "";
+  });
+  // The drag/resize gesture starts a native modal loop, which owns the first
+  // click's release, so the page never sees a complete click pair and a normal
+  // `dblclick` listener never fires. Detect the double click from the mousedown
+  // stream instead, matching Windows: double-click on the title bar or on the
+  // window border toggles the maximized state.
+  let lastPointerDownAt = 0;
+  let lastPointerDownX = 0;
+  let lastPointerDownY = 0;
+  const isDoubleClick = (event: MouseEvent) => {
+    if (event.timeStamp <= lastPointerDownAt) return false;
+    return (
+      event.timeStamp - lastPointerDownAt <= 450 &&
+      Math.abs(event.clientX - lastPointerDownX) <= 5 &&
+      Math.abs(event.clientY - lastPointerDownY) <= 5
+    );
+  };
+  const rememberPointerDown = (event: MouseEvent) => {
+    lastPointerDownAt = event.timeStamp;
+    lastPointerDownX = event.clientX;
+    lastPointerDownY = event.clientY;
+  };
+  stage.addEventListener(
+    "mousedown",
+    (event) => {
+      if (event.button !== 0) return;
+      const edge = edgeAt(event);
+      const doubleClick = isDoubleClick(event);
+      rememberPointerDown(event);
+      if (edge) {
+        event.preventDefault();
+        event.stopPropagation();
+        sendWindowAction(doubleClick ? "max" : "resize-" + edge.replace("-", ""));
+        return;
+      }
+      if (doubleClick && !isInteractive(event.target)) {
+        event.preventDefault();
+        event.stopPropagation();
+        sendWindowAction("max");
+      }
+    },
+    true,
+  );
   stage.querySelectorAll<HTMLButtonElement>("[data-window]").forEach((button) => {
     button.addEventListener("click", () => sendWindowAction(button.dataset.window!));
   });
@@ -402,13 +490,9 @@ if (hostBridge) {
   caption.addEventListener("mousedown", (event) => {
     if (event.button === 0) sendWindowAction("drag");
   });
-  caption.addEventListener("dblclick", () => sendWindowAction("max"));
   const header = $(".music-header");
   header.addEventListener("mousedown", (event) => {
     if (event.button === 0 && !isInteractive(event.target)) sendWindowAction("drag");
-  });
-  header.addEventListener("dblclick", (event) => {
-    if (!isInteractive(event.target)) sendWindowAction("max");
   });
 }
 stage.dataset.lyricsCollapsed = String(!!preferences.lyricsCollapsed);

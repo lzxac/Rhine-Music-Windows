@@ -232,6 +232,14 @@
   color: #fff;
   background: #a8402f;
 }
+/* While the pointer is inside the window-edge resize zone, the page (not the 3D
+   canvas or any other child) decides the cursor, so the resize arrows are visible.
+   The window controls are excluded from the zone in the page logic, so they keep
+   their own cursors. */
+#stage[data-window-edge],
+#stage[data-window-edge] * {
+  cursor: inherit !important;
+}
 .heart-icon {
   font-size: 23px;
   line-height: 16px;

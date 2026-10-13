@@ -18,15 +18,15 @@ using Microsoft.Web.WebView2.Core;
 [assembly: AssemblyTitle("Rhine Music Desktop")]
 [assembly: AssemblyProduct("Rhine Music")]
 [assembly: AssemblyDescription("Rhine Music independent Windows desktop player")]
-[assembly: AssemblyVersion("0.7.0.9")]
-[assembly: AssemblyFileVersion("0.7.0.9")]
-[assembly: AssemblyInformationalVersion("0.7.0-dev.9")]
+[assembly: AssemblyVersion("0.7.0.10")]
+[assembly: AssemblyFileVersion("0.7.0.10")]
+[assembly: AssemblyInformationalVersion("0.7.0-dev.10")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Bong712")]
 
 internal static class Program
 {
     private const string ProductName = "Rhine Music";
-    private const string AppVersion = "0.7.0-dev.9";
+    private const string AppVersion = "0.7.0-dev.10";
     private static int startedProcessId;
     private const uint CreateNoWindow = 0x08000000;
     private const uint StartfUseShowWindow = 0x00000001;
@@ -396,6 +396,7 @@ internal static class Program
             var debugProfile = Environment.GetEnvironmentVariable("RHINE_PROFILE") == "1"
                 || Environment.GetEnvironmentVariable("RHINE_PROFILE_CAPTURE") == "1";
             var address = "http://127.0.0.1:" + port + "/?desktop=1";
+            if (Environment.GetEnvironmentVariable("RHINE_EDGE_DIAG") == "1") address += "&edgediag=1";
             if (debugProfile)
             {
                 address += "&profile=1&scene=archive";
@@ -602,10 +603,25 @@ internal sealed class DesktopWindow : Form
         base.WndProc(ref message);
     }
 
+    // Diagnostic hook for window-edge behaviour. Enabled only when RHINE_EDGE_DIAG=1,
+    // in which case the page adds &edgediag=1 and every window message plus every
+    // reported edge zone lands in %TEMP%\rhine-edge-diag.log.
+    private bool edgeDiagnostics;
+    private string edgeDiagnosticsPath;
+
     private void HandleWindowMessage(object sender, CoreWebView2WebMessageReceivedEventArgs received)
     {
         var payload = received.TryGetWebMessageAsString();
         if (payload == null || !payload.StartsWith("rhine-window:", StringComparison.Ordinal)) return;
+        if (edgeDiagnostics)
+        {
+            try
+            {
+                File.AppendAllText(edgeDiagnosticsPath,
+                    DateTime.Now.ToString("HH:mm:ss.fff") + "  " + payload + Environment.NewLine, Encoding.UTF8);
+            }
+            catch { }
+        }
         switch (payload.Substring("rhine-window:".Length))
         {
             case "min":
@@ -623,7 +639,24 @@ internal sealed class DesktopWindow : Form
                 ReleaseCapture();
                 SendMessageW(Handle, WmNcLButtonDown, (IntPtr)CaptionHitTest, IntPtr.Zero);
                 return;
+            case "resize-left": BeginResize(10); return;
+            case "resize-right": BeginResize(11); return;
+            case "resize-top": BeginResize(12); return;
+            case "resize-topleft": BeginResize(13); return;
+            case "resize-topright": BeginResize(14); return;
+            case "resize-bottom": BeginResize(15); return;
+            case "resize-bottomleft": BeginResize(16); return;
+            case "resize-bottomright": BeginResize(17); return;
         }
+    }
+
+    // The page asks for this when the pointer is at the window edge, because the
+    // frameless window has no non-client border for the shell to hit.
+    private void BeginResize(int hitTest)
+    {
+        if (fullscreen || WindowState == FormWindowState.Maximized) return;
+        ReleaseCapture();
+        SendMessageW(Handle, WmNcLButtonDown, (IntPtr)hitTest, IntPtr.Zero);
     }
 
     private bool CoversWorkArea(Rect rect)
@@ -690,6 +723,8 @@ internal sealed class DesktopWindow : Form
         this.profile = profile;
         profileCapture = Environment.GetEnvironmentVariable("RHINE_PROFILE_CAPTURE") == "1";
         profileCapturePath = Path.Combine(profile, "profile-capture.jsonl");
+        edgeDiagnostics = Environment.GetEnvironmentVariable("RHINE_EDGE_DIAG") == "1";
+        edgeDiagnosticsPath = Path.Combine(Path.GetTempPath(), "rhine-edge-diag.log");
         Text = "Rhine Music";
         using (var iconStream = typeof(Program).Assembly.GetManifestResourceStream("RhineMusicIcon.ico"))
         {

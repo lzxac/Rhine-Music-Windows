@@ -572,3 +572,15 @@ Two additions on top of `0.7.0-dev.3`'s display fixes.
 - Verified: the .ico's 32px entry and the running window icon both read alpha 0 at the corners and 235 at the edge midpoints; the 256 entry was decoded straight from the file bytes to confirm both artwork and transparency.
 - The icon artwork shipped provisionally in `0.7.0-dev.8`, which was never released; this is the released form of the icon change.
 - Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.
+
+## 0.7.0-dev.10 (2026-10-13)
+
+- Fix edge resizing, which had been broken since the frameless window landed in `0.7.0-dev.6`. The frame is stripped through `WM_NCCALCSIZE`, so the whole window is client area and the WebView2 child covers it; the shell therefore hit-tests the child, never the form, and the form's `WM_NCHITTEST` grips were unreachable from real mouse input. A synthetic `SendMessage(WM_NCHITTEST)` test reported the right codes and hid the problem.
+- The page now detects the window edge itself (6px zone) and asks the host for the native resize loop over the host bridge, the same mechanism the existing drag-to-move uses. The window-control buttons sit inside that corner, so they are excluded from the zone and keep their own clicks and cursors.
+- Make the resize cursor actually visible: the 3D canvas assigns its own cursor while hovering the scene, so a cursor on the root element alone was overridden everywhere except the top strip. Inside the edge zone the stylesheet now takes over (`#stage[data-window-edge] ... cursor: inherit !important`).
+- Verified with real synthetic mouse input (cursor position, button press, move, release) at all eight positions: every one reports the matching resize cursor (`SIZENWSE` / `SIZENS` / `SIZENESW` / `SIZEWE`) and resizes the window (right 1600->1760, bottom 900->1020, top 1020->920 with the top moving 40->140, corners similar), and the header drag still moves the window.
+- Add `RHINE_EDGE_DIAG=1`: the launcher then loads the page with `&edgediag=1` and appends every window message plus every reported edge zone to `%TEMP%\rhine-edge-diag.log`. That hook is what turned "the corners do not work" into the cursor-override finding; it is off by default.
+- Make double-click work again. The drag and resize requests start a native modal loop that owns the first click's release, so the page never sees a complete click pair and a `dblclick` listener never fires — the handlers added in `0.7.0-dev.6` had therefore never run. Double clicks are now detected from the mousedown stream (450ms, 5px) and toggle the maximized state, matching Windows on both the header and the window border. Verified: windowed plus a double click on the header or the border maximises; maximised plus a double click restores; a single click leaves the state untouched.
+- A maximized window still ignores edge resizing, matching Windows; the header drag restores and moves it like a normal title bar.
+- This entry replaces the first `0.7.0-dev.10` build, which shipped the resize bridge but no cursor feedback.
+- Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.
