@@ -544,3 +544,10 @@ Two additions on top of `0.7.0-dev.3`'s display fixes.
 - Packaging now takes `NODE-LICENSE.txt` from `-RuntimeTemplateDir` because this machine's Node.js install ships without a license file.
 - Packaging failures now roll the version number back before the next attempt, so development versions stay contiguous (three earlier attempts on 2026-10-13 failed during tooling setup and were renumbered into this release; nothing was ever published under a skipped number).
 - Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.
+
+## 0.7.0-dev.6 (2026-10-13)
+
+- Integrate the window title bar with the application (user request, NetEase-style borderless window). `DesktopWindow` strips the standard frame via `WM_NCCALCSIZE` so the web content reaches the window edge; `WM_NCHITTEST` keeps the eight resize grips working on the borders; a maximized borderless window is pushed back inside the monitor by the hidden frame width. Win11 rounded corners are requested through `DWMWA_WINDOW_CORNER_PREFERENCE` (ignored on Win10).
+- The page sends `rhine-window:min|max|close|drag` over the WebView2 host bridge: dragging the top strip or the empty header space moves the window, double-clicking them toggles maximize, and three small buttons at the right end of the header minimize, maximize/restore and close. F11 fullscreen behaviour is unchanged.
+- Browser and PWA builds are untouched: every window-control affordance is gated behind `data-host-window`, which is only set when the WebView2 host bridge exists.
+- Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.

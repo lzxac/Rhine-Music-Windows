@@ -256,6 +256,7 @@ git merge main
   - 该命令会在 `CHANGELOG.md` 末尾插入一条占位条目，**必须手动补全内容**。README 会引用 `RELEASE_NOTES_<版本>.md`，**该文件要自己写**。
   - 版本的划分：`0.7.0-dev.3` = 纯显示修复；`0.7.0-dev.4` = 在 dev.3 之上新增歌词字号与对齐两个开关。两个条目**分开写**，别把功能塞进修复条目。
 - **打包 EXE 可用**（2026-10-13）：`node scripts/…` 不用管，直接跑 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -WebView2Dir <repo>\sdk\lib -RuntimeTemplateDir <repo>\work\runtime-template -OutputDirectory "B:\RHINE LAB_DEV\outputs"`。产物在 `B:\RHINE LAB_DEV\outputs\`（README/构建文档写的"工作区根目录 outputs"在本机会解析到 `B:\`，所以显式传 `-OutputDirectory`）。`work\runtime-template\NODE-LICENSE.txt` 是本机 Node 安装缺失的许可文件，已在 .gitignore 的 work/ 下，别删。构建脚本已改为兼容 Windows PowerShell 5.1（原脚本要 PowerShell 7）。
+- **窗口与顶栏融合**（2026-10-13，dev.6）：启动器去掉系统标题栏（`WM_NCCALCSIZE` 置空 + `WM_NCHITTEST` 保留八向缩放），网页顶栏右上角带 最小化/最大化/关闭 三键，顶栏空白区可拖动窗口、双击切换最大化。网页端一切窗口控制都由 `[data-host-window]` 控制，浏览器端不出现。宿主消息协议是 `rhine-window:min|max|close|drag`。**强制杀启动器进程会孤儿化 node 服务**（finally 不执行），孤儿服务占着端口且 projectDir 不匹配会让下一版 EXE 全端口 Busy，务必用 CloseMainWindow 或界面关闭。
 - **版本号保持连续（用户要求，2026-10-13 起）**：构建脚本每次运行内部都会 `--allocate-dev` 递增一号，所以**构建前 version.json 必须停在"上一个已发布版本"**，让脚本分配出下一个号；**不要**手动预分配。若构建失败，回滚流程：把 `version.json` 退回上一个已发布版本 → `node scripts/version.mjs --sync` → 删掉 CHANGELOG 末尾的占位条目 → 清空 `outputs\` 里失败产生的文件 → 再跑构建。这样 dev 序号永不跳号。
 - `CHANGELOG.md` 与 `RELEASE_NOTES_0.7.0-dev.4.md` 已按第 5 节的规范写好。CHANGELOG 条目从旧到新排在**文件末尾**（注意顺序）。
 - **已推送到 GitHub**（2026-10-13，用户要求）：`main`（→ `7071b16`）和 `rhine-lab`（→ `990ebfb`）都已推到 `origin`，`rhine-lab` 已设好上游跟踪。今后每次交付默认推送。

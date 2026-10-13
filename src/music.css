@@ -187,6 +187,51 @@
   padding: 0 3px;
   color: var(--muted);
 }
+/* Window chrome integration: the launcher strips the native title bar, so the
+   top strip above the header drags the window and the header hosts the
+   window-control buttons. Browser builds keep all of this hidden. */
+#window-caption {
+  display: none;
+}
+.music-app[data-host-window="1"] #window-caption {
+  display: block;
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 33px;
+}
+.window-controls {
+  display: none;
+}
+.music-app[data-host-window="1"] .window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: -8px;
+}
+.window-controls button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border-radius: 4px;
+  color: var(--muted);
+}
+.window-controls button svg {
+  width: 13px;
+  height: 13px;
+}
+.window-controls button:hover {
+  color: var(--ink);
+  background: var(--line);
+}
+.window-controls .window-close:hover {
+  color: #fff;
+  background: #a8402f;
+}
 .heart-icon {
   font-size: 23px;
   line-height: 16px;

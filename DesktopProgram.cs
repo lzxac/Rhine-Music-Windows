@@ -18,15 +18,15 @@ using Microsoft.Web.WebView2.Core;
 [assembly: AssemblyTitle("Rhine Music Desktop")]
 [assembly: AssemblyProduct("Rhine Music")]
 [assembly: AssemblyDescription("Rhine Music independent Windows desktop player")]
-[assembly: AssemblyVersion("0.7.0.5")]
-[assembly: AssemblyFileVersion("0.7.0.5")]
-[assembly: AssemblyInformationalVersion("0.7.0-dev.5")]
+[assembly: AssemblyVersion("0.7.0.6")]
+[assembly: AssemblyFileVersion("0.7.0.6")]
+[assembly: AssemblyInformationalVersion("0.7.0-dev.6")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Bong712")]
 
 internal static class Program
 {
     private const string ProductName = "Rhine Music";
-    private const string AppVersion = "0.7.0-dev.5";
+    private const string AppVersion = "0.7.0-dev.6";
     private static int startedProcessId;
     private const uint CreateNoWindow = 0x08000000;
     private const uint StartfUseShowWindow = 0x00000001;
@@ -529,6 +529,15 @@ internal static class Program
 
 internal sealed class DesktopWindow : Form
 {
+    private const int WmNcCalcSize = 0x0083;
+    private const int WmNcHitTest = 0x0084;
+    private const int WmNcLButtonDown = 0x00A1;
+    private const int CaptionHitTest = 0x0002;
+    private const int SmSizeFrame = 32;
+    private const int SmPaddedBorder = 92;
+    private const int DwmWindowCornerPreference = 33;
+    private const int DwmRoundPreference = 2;
+
     private readonly WebView2 browser;
     private readonly string address;
     private readonly string profile;
@@ -540,6 +549,109 @@ internal sealed class DesktopWindow : Form
     private FormBorderStyle windowedBorderStyle;
     private FormWindowState windowedState;
     private bool fullscreen;
+
+    // The web page owns the whole window: WM_NCCALCSIZE strips the standard
+    // frame (title bar included) so the WebView2 content reaches the window
+    // edge, WM_NCHITTEST keeps the resize grips working on the borders, and
+    // the page sends "rhine-window:*" messages for drag/min/max/close.
+    protected override void WndProc(ref Message message)
+    {
+        if (message.Msg == WmNcCalcSize && message.WParam != IntPtr.Zero)
+        {
+            if (WindowState == FormWindowState.Maximized && !fullscreen)
+            {
+                // A maximized borderless window would otherwise overhang the
+                // screen by the hidden frame on every side; push the client
+                // back inside the monitor.
+                var frame = GetSystemMetrics(SmSizeFrame) + GetSystemMetrics(SmPaddedBorder);
+                var regions = (NcCalcSizeRegions)Marshal.PtrToStructure(
+                    message.LParam, typeof(NcCalcSizeRegions));
+                regions.Region0.Left += frame;
+                regions.Region0.Top += frame;
+                regions.Region0.Right -= frame;
+                regions.Region0.Bottom -= frame;
+                Marshal.StructureToPtr(regions, message.LParam, false);
+            }
+            message.Result = IntPtr.Zero;
+            return;
+        }
+        if (message.Msg == WmNcHitTest && WindowState == FormWindowState.Normal && !fullscreen)
+        {
+            var cursor = new Point(
+                (short)((long)message.LParam & 0xFFFF),
+                (short)(((long)message.LParam >> 16) & 0xFFFF));
+            var local = PointToClient(cursor);
+            var grip = GetSystemMetrics(SmSizeFrame) + GetSystemMetrics(SmPaddedBorder);
+            var left = local.X <= grip;
+            var right = local.X >= Width - grip;
+            var top = local.Y <= grip;
+            var bottom = local.Y >= Height - grip;
+            if (top && left) { message.Result = (IntPtr)13; return; }   // HTTOPLEFT
+            if (top && right) { message.Result = (IntPtr)14; return; }  // HTTOPRIGHT
+            if (bottom && left) { message.Result = (IntPtr)16; return; } // HTBOTTOMLEFT
+            if (bottom && right) { message.Result = (IntPtr)17; return; } // HTBOTTOMRIGHT
+            if (left) { message.Result = (IntPtr)10; return; }   // HTLEFT
+            if (right) { message.Result = (IntPtr)11; return; }  // HTRIGHT
+            if (top) { message.Result = (IntPtr)12; return; }    // HTTOP
+            if (bottom) { message.Result = (IntPtr)15; return; } // HTBOTTOM
+        }
+        base.WndProc(ref message);
+    }
+
+    private void HandleWindowMessage(object sender, CoreWebView2WebMessageReceivedEventArgs received)
+    {
+        var payload = received.TryGetWebMessageAsString();
+        if (payload == null || !payload.StartsWith("rhine-window:", StringComparison.Ordinal)) return;
+        switch (payload.Substring("rhine-window:".Length))
+        {
+            case "min":
+                WindowState = FormWindowState.Minimized;
+                return;
+            case "max":
+                WindowState = WindowState == FormWindowState.Maximized
+                    ? FormWindowState.Normal
+                    : FormWindowState.Maximized;
+                return;
+            case "close":
+                Close();
+                return;
+            case "drag":
+                ReleaseCapture();
+                SendMessageW(Handle, WmNcLButtonDown, (IntPtr)CaptionHitTest, IntPtr.Zero);
+                return;
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NcCalcSizeRegions
+    {
+        public Rect Region0;
+        public Rect Region1;
+        public Rect Region2;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr SendMessageW(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
+
 
     public DesktopWindow(string address, string profile)
     {
@@ -587,6 +699,13 @@ internal sealed class DesktopWindow : Form
                 await browser.EnsureCoreWebView2Async(environment);
                 browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
                 browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
+                browser.CoreWebView2.WebMessageReceived += HandleWindowMessage;
+                try
+                {
+                    var cornerPreference = DwmRoundPreference;
+                    DwmSetWindowAttribute(Handle, DwmWindowCornerPreference, ref cornerPreference, 4);
+                }
+                catch (DllNotFoundException) { }
                 if (profileCapture)
                 {
                     WriteProfileCapture("webview-initialized", new Dictionary<string, object>

@@ -77,6 +77,9 @@ const icons = {
     '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.5" fill="var(--surface)"/><circle cx="15" cy="17" r="2.5" fill="var(--surface)"/>',
   ),
   folder: svg('<path d="M3 7V5h6l2 2h10v13H3Z"/>'),
+  windowMin: svg('<path d="M5 12h14"/>'),
+  windowMax: svg('<rect x="6" y="6" width="12" height="12" rx="1"/>'),
+  windowClose: svg('<path d="m6 6 12 12M18 6 6 18"/>'),
 };
 const read = <T>(key: string, fallback: T): T => {
   try {
@@ -317,9 +320,16 @@ const stage = $("#stage");
 stage.className = "music-app";
 stage.dataset.mode = "archive";
 stage.dataset.theme = preferences.theme;
+// Running inside the Windows launcher (WebView2) exposes the host bridge; the
+// plain browser build keeps every window-control affordance hidden.
+const hostBridge = (window as unknown as {
+  chrome?: { webview?: { postMessage(message: string): void } };
+}).chrome?.webview;
+stage.dataset.hostWindow = hostBridge ? "1" : "0";
 stage.innerHTML = `
   <div id="three-scene" class="three-scene"></div>
   <div class="music-vignette" aria-hidden="true"></div>
+  ${hostBridge ? '<div id="window-caption" aria-hidden="true"></div>' : ""}
   <header class="music-header">
     <div class="music-identity"><a class="music-brand" href="/" aria-label="Rhine Music 音乐库"><strong>RHINE LAB</strong><span>MUSIC ARCHIVE <i>／</i> 私人音乐终端</span></a></div>
     <nav class="music-topnav" aria-label="音乐终端导航">
@@ -330,6 +340,7 @@ stage.innerHTML = `
       <div class="theme-switch" role="group" aria-label="主题">${(["day", "dusk", "night"] as Theme[]).map((t) => `<button data-theme="${t}" title="${themeNames[t]}主题" aria-label="${themeNames[t]}主题" aria-pressed="${preferences.theme === t}"><i class="theme-dot ${t}"></i><span>${themeNames[t]}</span></button>`).join("")}</div>
       <button data-action="settings" class="icon-button" aria-label="播放与画质设置">${icons.settings}</button>
       <div class="minimal-transport" role="group" aria-label="音乐播放"><button type="button" data-action="locate-playing" id="transport-track" class="transport-track" aria-label="定位当前歌曲" aria-hidden="true" disabled><span id="transport-track-label"></span></button><span id="transport-lyric-status" class="transport-lyric-status" role="status" aria-live="polite" hidden></span><button type="button" id="transport-lyrics-open" class="transport-lyrics-open" data-action="lyrics-panel" hidden>歌词</button><button data-action="play-pause" id="play-pause" aria-label="播放" aria-pressed="false"><span class="transport-glyph transport-play" aria-hidden="true">${icons.play}</span><span class="transport-glyph transport-pause" aria-hidden="true">${icons.pause}</span></button><button data-action="stop" id="stop-playback" aria-label="停止">${icons.stop}</button></div>
+      ${hostBridge ? `<div class="window-controls" role="group" aria-label="窗口控制"><button type="button" data-window="min" aria-label="最小化窗口">${icons.windowMin}</button><button type="button" data-window="max" aria-label="最大化或还原窗口">${icons.windowMax}</button><button type="button" data-window="close" class="window-close" aria-label="关闭窗口">${icons.windowClose}</button></div>` : ""}
     </nav>
   </header>
   <aside id="music-lyrics-panel" class="music-lyrics-panel" aria-label="同步滚动歌词" hidden>
@@ -380,6 +391,26 @@ stage.innerHTML = `
 `;
 // Apply the stored collapsed state once, before the first paint of the panel.
 $("#lyrics-panel-body").hidden = !!preferences.lyricsCollapsed;
+if (hostBridge) {
+  const sendWindowAction = (action: string) => hostBridge.postMessage("rhine-window:" + action);
+  const isInteractive = (target: EventTarget | null) =>
+    target instanceof Element && Boolean(target.closest("button, a, input, select, .theme-switch, .window-controls"));
+  stage.querySelectorAll<HTMLButtonElement>("[data-window]").forEach((button) => {
+    button.addEventListener("click", () => sendWindowAction(button.dataset.window!));
+  });
+  const caption = $("#window-caption");
+  caption.addEventListener("mousedown", (event) => {
+    if (event.button === 0) sendWindowAction("drag");
+  });
+  caption.addEventListener("dblclick", () => sendWindowAction("max"));
+  const header = $(".music-header");
+  header.addEventListener("mousedown", (event) => {
+    if (event.button === 0 && !isInteractive(event.target)) sendWindowAction("drag");
+  });
+  header.addEventListener("dblclick", (event) => {
+    if (!isInteractive(event.target)) sendWindowAction("max");
+  });
+}
 stage.dataset.lyricsCollapsed = String(!!preferences.lyricsCollapsed);
 stage.dataset.lyricsPlaying = "false";
 {
