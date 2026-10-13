@@ -267,6 +267,15 @@ git merge main
 - **版本号保持连续（用户要求，2026-10-13 起）**：构建脚本每次运行内部都会 `--allocate-dev` 递增一号，所以**构建前 version.json 必须停在"上一个已发布版本"**，让脚本分配出下一个号；**不要**手动预分配。若构建失败，回滚流程：把 `version.json` 退回上一个已发布版本 → `node scripts/version.mjs --sync` → 删掉 CHANGELOG 末尾的占位条目 → 清空 `outputs\` 里失败产生的文件 → 再跑构建。这样 dev 序号永不跳号。
 - `CHANGELOG.md` 与 `RELEASE_NOTES_0.7.0-dev.4.md` 已按第 5 节的规范写好。CHANGELOG 条目从旧到新排在**文件末尾**（注意顺序）。
 - **推送/发布前必须得到用户明确确认**（2026-10-14 用户要求，之前写的"每次交付默认推送"作废）：改完先交给用户试用，**用户说"可以"之后才推送、才发 Release**。用户是产品角色，他要用真实手感验收（本轮的缩放光标问题就是他试用后发现的，而我自己的自动化测试没发现）。
+- **正式版（去掉 `-dev` 的版本）的门槛与决定**（2026-10-14 明确）：`scripts/version.mjs` 的 `releaseAcceptance()` 硬性要求 `performance-acceptance.json`，内容是 **PresentMon 在真实 3840×2160 下**测出的 6 个场景（cold-switch / warm-switch / rapid-switch / album-detail / theme-switch / large-library）均 ≥60 显示帧、p95 `MsBetweenDisplayChange` ≤16.67ms，且不得降低画质或把低分辨率放大到 4K。**这是上游原项目自带的标准**（见 `BUILD-WINDOWS.md` 的"4K 性能验收"一节），不是本 fork 新增。
+  - 用户参考机是 **3440×1440 @144Hz + RTX 2070 SUPER**，无 4K 显示设备，因此**暂不发布正式版**，继续开发版线（dev.N）。
+  - 用户已同意：**以后可以新增**一套"本机分辨率（3440×1440@144Hz）"的验收标准，与原有 4K 标准**并存**（正式版满足任意一套即可），两套都如实写明测量硬件，不能互相顶替、不能伪造。
+  - 若将来接上 4K 显示设备：需装 PresentMon、自动化跑完 6 个场景、解析其 CSV（显示帧间隔）再写报告；app 已有可用的驱动钩子（`RHINE_PROFILE_CAPTURE` / `RHINE_PROFILE_THEME` / `RHINE_STRESS_LIBRARY`）。
+- **GitHub Releases 的排序规律**（2026-10-14 实测确认，用于让"最新版排在最上面"）：
+  - GitHub **不按时间排**。同一分组内是按**标签名字符串倒序**：`0.7.0-dev.9` > `0.7.0-dev.7` > … > `0.7.0-dev.5` > `0.7.0-dev.10`（字符串里 `"10" < "5"`），所以 `dev.10` 会掉到最下面。
+  - **最新/非预发布的那个会排在最前**：把最新版的 `prerelease` 取消（`prerelease:false` + `make_latest:"true"`）后，它立刻置顶并被标为 Latest，`/releases/latest` 也返回它。
+  - 因此**以后想让新版本置顶，就把它作为正式发布（不加 Pre-release）**；若继续标 Pre-release，它会因名字文本排序而落在单数版本之下。等宽标签（`0.7.0-dev.05`）也能修好顺序，但会让标签与程序内版本号不一致，非必要不用。
+  - 发布 API 相关的脚本经验：**每个 curl 调用只能有一个 `--max-time`**（重复时 curl 取较短的，65MB 上传会被 40 秒掐断）；上传域名是 `uploads.github.com`，DELETE/GET 用 `api.github.com`。
 - **已推送到 GitHub**（2026-10-13，用户要求）：`main`（→ `7071b16`）和 `rhine-lab` 推到 `origin`，`rhine-lab` 已设好上游跟踪。
 - **封面修复已反馈上游**：从 `lzxac:main` 向 `Bong712:main` 发了 PR（[Bong712/Rhine-Music-Windows#4](https://github.com/Bong712/Rhine-Music-Windows/pull/4)，2026-10-13，mergeable 状态 clean）。等 Bong712 处理；他若提修改意见，改 `main` 分支的代码即可（PR 会自动带上）。
 - **GitHub 仓库默认分支是 `rhine-lab`**（2026-10-13 应用户要求从 `main` 改过来），所以仓库首页展示的是 rhine-lab 的 README（含"Rhine Lab 版的更新内容"一节）。README 里的"当前版本"行由 `scripts/version.mjs` 重写，已改成维护者 lzxac 的格式，别改回去。给上游的 PR 只含 main 上的代码提交，README 改动只在 rhine-lab，不会互相污染。
