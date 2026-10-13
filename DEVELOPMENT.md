@@ -256,12 +256,13 @@ git merge main
   - 该命令会在 `CHANGELOG.md` 末尾插入一条占位条目，**必须手动补全内容**。README 会引用 `RELEASE_NOTES_<版本>.md`，**该文件要自己写**。
   - 版本的划分：`0.7.0-dev.3` = 纯显示修复；`0.7.0-dev.4` = 在 dev.3 之上新增歌词字号与对齐两个开关。两个条目**分开写**，别把功能塞进修复条目。
 - `CHANGELOG.md` 与 `RELEASE_NOTES_0.7.0-dev.4.md` 已按第 5 节的规范写好。CHANGELOG 条目从旧到新排在**文件末尾**（注意顺序）。
-- **未推送任何东西到 GitHub**（用户要求）。
+- **已推送到 GitHub**（2026-10-13，用户要求）：`main`（→ `7071b16`）和 `rhine-lab`（→ `990ebfb`）都已推到 `origin`，`rhine-lab` 已设好上游跟踪。今后每次交付默认推送。
 - `scripts/check-music-scene.mjs` 里有 4 条断言原本要求"面板必须不透明/有投影/有毛玻璃"，**已改写成对新设计的断言**（不得有背景/投影/毛玻璃、必须保留透明占位边框、歌词列表不得预留滚动条槽、隐藏范围只针对被覆盖那一块且用 `visibility`）。别改回去。
 
 ### 恢复验证环境
 
 1. 代理必须开着：`127.0.0.1:10810`（Whale）。**代理关闭时任何 GitHub 结论都不可信**（曾因此误判仓库被删除）。
+   **Git 走这个代理必须用 TLS 1.2**：schannel 的 TLS 1.3 在此代理下握手会失败（`schannel: failed to receive handshake`），已用 `http.https://github.com/.sslVersion=tlsv1.2` 修在仓库本地配置里，别删。换 OpenSSL 后端也不行（`unexpected eof`），只有锁 TLS 1.2 有效。
 2. 构建并启动本地服务（**注意：8099 上通常已经有一个在跑的服务，它用的是用户真实曲库 `D:\Music\林子汐的车载电台`，不是 `_verify` 副本；别再起第二个**）：
    ```powershell
    npm run build
