@@ -564,3 +564,11 @@ Two additions on top of `0.7.0-dev.3`'s display fixes.
 - `desktop/app-icon-source.png` keeps the owner's source artwork next to the generated `desktop/app.ico`; the multi-size ico holds 16/20/24/32/40/48/64/128/256 (bitmap entries up to 64, PNG entries above).
 - The artwork itself is provisional: the owner is preparing a final design, and replacing it only means regenerating `desktop/app.ico` and rebuilding.
 - Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.
+
+## 0.7.0-dev.9 (2026-10-13)
+
+- Ship the final application icon: the owner's second design ("RLAB" wordmark over the archive-shelf texture). Its corners are now genuinely transparent. The artwork carried a painted dark vignette rather than an alpha channel, so a rounded-rectangle mask was applied using the radius measured from the artwork itself (161px on a 1254px canvas, 12.84%).
+- Emit every icon size as an uncompressed bitmap entry (16/20/24/32/40/48/64/128/256). The earlier PNG-compressed 128/256 entries were dropped because System.Drawing cannot read PNG-compressed icon entries and the plain bitmap form is the most widely compatible.
+- Verified: the .ico's 32px entry and the running window icon both read alpha 0 at the corners and 235 at the edge midpoints; the 256 entry was decoded straight from the file bytes to confirm both artwork and transparency.
+- The icon artwork shipped provisionally in `0.7.0-dev.8`, which was never released; this is the released form of the icon change.
+- Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.
