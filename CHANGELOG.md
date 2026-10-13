@@ -557,3 +557,10 @@ Two additions on top of `0.7.0-dev.3`'s display fixes.
 - Fix the light strip that appeared around the client on the first restore from maximized. The maximized inset in `WM_NCCALCSIZE` was keyed on WinForms' `WindowState`, which lags behind the rects in the message during maximize/restore transitions; the inset was therefore applied to restored bounds and the light form background showed through. The inset is now decided from geometry: it applies only when the proposed window rect actually covers the nearest monitor's work area (the approach used by Chromium and Windows Terminal). Verified programmatically: after `SC_RESTORE` the top row of the restored window reads dark page content, not the form background.
 - Packaging lessons recorded: `scripts/build-windows.ps1` publishes only after all native compilation succeeds, and two mid-development compile failures burned dev numbers before the rollback procedure was applied.
 - Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.
+
+## 0.7.0-dev.8 (2026-10-13)
+
+- Give the application a real icon (user request). The build now compiles `desktop/app.ico` into the executable with `/win32icon` so Explorer shows it, and embeds the same file as the `RhineMusicIcon.ico` resource so `DesktopWindow` can set `Form.Icon` for the taskbar and Alt-Tab. Both were verified on the built package by extracting the executable icon and reading the window icon back through `WM_GETICON`.
+- `desktop/app-icon-source.png` keeps the owner's source artwork next to the generated `desktop/app.ico`; the multi-size ico holds 16/20/24/32/40/48/64/128/256 (bitmap entries up to 64, PNG entries above).
+- The artwork itself is provisional: the owner is preparing a final design, and replacing it only means regenerating `desktop/app.ico` and rebuilding.
+- Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.

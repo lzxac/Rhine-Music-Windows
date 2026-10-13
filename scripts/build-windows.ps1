@@ -145,12 +145,18 @@ try {
     $payloadZip = Join-Path $buildRoot 'payload.zip'
     [IO.Compression.ZipFile]::CreateFromDirectory($payloadRoot, $payloadZip, [IO.Compression.CompressionLevel]::Optimal, $false)
     $stagedExePath = Join-Path $buildRoot $exeName
+    $iconPath = Join-Path $projectRoot 'desktop\app.ico'
+    if (-not (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
+      throw "Missing the application icon at '$iconPath'."
+    }
     $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
     $references = @('System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll', 'System.Web.Extensions.dll', 'System.IO.Compression.dll', 'System.IO.Compression.FileSystem.dll') | ForEach-Object { "/reference:$(Join-Path $framework $_)" }
     $arguments = @(
       '/nologo', '/target:winexe', '/platform:x64', '/optimize+', "/out:$stagedExePath",
       "/win32manifest:$(Join-Path $projectRoot 'app.manifest')",
+      "/win32icon:$iconPath",
       "/resource:$payloadZip,RhineMusicPayload.zip",
+      "/resource:$iconPath,RhineMusicIcon.ico",
       "/reference:$(Join-Path $WebView2Dir 'Microsoft.Web.WebView2.Core.dll')",
       "/reference:$(Join-Path $WebView2Dir 'Microsoft.Web.WebView2.WinForms.dll')"
     ) + $references + @((Join-Path $projectRoot 'DesktopProgram.cs'))
