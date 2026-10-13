@@ -2,11 +2,31 @@
 
 这是 [RonaldDeng/Rhine-Music-Demo](https://github.com/RonaldDeng/Rhine-Music-Demo) 的 Windows 桌面移植版。项目在三维音乐档案界面和本机播放基础上，添加了同步歌词显示，并扩展了 Windows 曲库、歌单和播放队列管理。
 
-**当前版本：0.7.0-dev.4** · **维护者：** [Bong712](https://github.com/Bong712)
+本仓库是 [lzxac](https://github.com/lzxac) 维护的**衍生版（Rhine Lab 版）**：在 Bong712 的 Windows 版基础上修复 bug、开发自己的功能。能反馈给上游的修复走 `main` 分支，自有功能走 `rhine-lab` 分支。
+
+**当前版本：0.7.0-dev.4** · **维护者：** [lzxac](https://github.com/lzxac)（Rhine Lab 衍生版）
+
+## Rhine Lab 版的更新内容
+
+相对上游 Bong712 的 Windows 版，本分支目前的改动：
+
+### 修复的 Bug
+
+- **专辑封面串台**（`0.6.0-dev.58`）：同一个歌手文件夹里散放的多首单曲、或合集文件夹，会让派生出的所有专辑都显示其中第一首歌的封面（在 666 首歌的真实曲库中，41 张互不相关的专辑共用同一张图）。现在每个专辑都会读取并使用自己的封面，并已加回归测试防止复发。此修复已通过 [PR #4](https://github.com/Bong712/Rhine-Music-Windows/pull/4) 反馈给上游，完整分析见 [BUG-REPORT-album-artwork.md](BUG-REPORT-album-artwork.md)。
+
+### 新增与改进
+
+- **同步歌词成为主视图**（`0.7.0-dev.2`）：右侧常驻歌词面板取代原来的两行小字——当前句自动居中跟随；手动滚动列表时跟随会自动暂停、停止后再恢复；可收起成一条只显示当前句和加载状态的窄卡，收起状态会被记住；窄窗口下面板自动停靠到底部；原来的全屏歌词弹窗已移除。
+- **专辑详情页显示打磨**（`0.7.0-dev.3`）：歌词面板与专辑页融为一体（去背景、与专辑文字对齐），制作人员区块始终可见，行悬停和点击跳转的高亮铺满整行，长歌单滚动时不再穿透到制作人员文字后面。
+- **歌词字号与对齐控制**（`0.7.0-dev.4`）：面板上可用 A－/A＋ 调节六档歌词字号，可切换左对齐／居中对齐，偏好都会记住。
+
+### 暂定后续
+
+专辑信息自动收纳、背景虚化、逐字（卡拉OK）歌词。
 
 ## 下载与运行
 
-打开 [Releases](https://github.com/Bong712/Rhine-Music-Windows/releases)，下载对应版本的 Windows x64 `.exe`。需要 Windows 10/11 和 Microsoft Edge WebView2 Evergreen Runtime。程序首次启动时会解压运行资源到 `%LOCALAPPDATA%\Rhine Music\app-v<version>`。
+想要官方稳定版，请到上游 [Bong712 的 Releases](https://github.com/Bong712/Rhine-Music-Windows/releases) 下载对应版本的 Windows x64 `.exe`。本仓库（Rhine Lab 版）当前以开发为主，从源码运行见下方"开发与构建"。需要 Windows 10/11 和 Microsoft Edge WebView2 Evergreen Runtime。程序首次启动时会解压运行资源到 `%LOCALAPPDATA%\Rhine Music\app-v<version>`。
 
 在“音乐库”中添加本机音乐文件夹并扫描。播放器读取原位置的音频，不上传或复制歌曲。曲库索引、歌单、封面缓存和设置存放在 `%LOCALAPPDATA%\Rhine Music\music-data-v3`。还没有曲库时，可以直接进入演示封面。
 
@@ -35,7 +55,7 @@ $releaseDir = Join-Path (Get-Location) 'outputs'
 ./scripts/build-windows.ps1 -WebView2Dir (Join-Path (Get-Location) 'sdk/lib') -OutputDirectory $releaseDir
 ```
 
-构建脚本会分配新的 `0.6.0-dev.N` 版本，保留已有发行文件，并将 EXE 与版本清单输出到 `outputs/`。前端开发模式可用 `npm run dev`；独立音乐服务可用 `npm run music`。音乐服务只绑定本机 `127.0.0.1`。
+构建脚本会按 `version.json` 分配新的开发版本号并同步到各处，保留已有发行文件，并将 EXE 与版本清单输出到 `outputs/`。前端开发模式可用 `npm run dev`；独立音乐服务可用 `npm run music`。音乐服务只绑定本机 `127.0.0.1`。
 
 ## 来源、署名与许可
 
@@ -45,4 +65,4 @@ Windows 版开发者：[Bong712](https://github.com/Bong712)；特别鸣谢：[R
 
 ## English
 
-Rhine Music for Windows is a Windows desktop port of [RonaldDeng/Rhine-Music-Demo](https://github.com/RonaldDeng/Rhine-Music-Demo), with synchronized LRC lyric display added alongside playlist and playback-queue management. It is developed by [Bong712](https://github.com/Bong712), with special thanks to RonaldDeng. The 3D archive UI builds on [LBEILC/RhineLabUI](https://github.com/LBEILC/RhineLabUI). See the notices for third-party licenses and asset attribution.
+Rhine Music for Windows is a Windows desktop port of [RonaldDeng/Rhine-Music-Demo](https://github.com/RonaldDeng/Rhine-Music-Demo), with synchronized LRC lyric display added alongside playlist and playback-queue management. It is developed by [Bong712](https://github.com/Bong712), with special thanks to RonaldDeng. The 3D archive UI builds on [LBEILC/RhineLabUI](https://github.com/LBEILC/RhineLabUI). This fork (the Rhine Lab edition) is maintained by [lzxac](https://github.com/lzxac): it fixes the local album-artwork mixing bug and reworks the synchronized lyrics panel. See the notices for third-party licenses and asset attribution.

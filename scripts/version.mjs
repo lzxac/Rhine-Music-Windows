@@ -121,8 +121,8 @@ async function synchronize(state, { saveState, changelogEntry } = {}) {
       `Windows build: ${version}`, 'README build version')
   } else {
     readme = replaceOne(readme,
-      /^\*\*当前版本：[^*]+\*\* · \*\*维护者：\*\* \[Bong712\]\(https:\/\/github\.com\/Bong712\)$/m,
-      `**当前版本：${version}** · **维护者：** [Bong712](https://github.com/Bong712)`, 'README build version')
+      /^\*\*当前版本：[^*]+\*\* · \*\*维护者：\*\* .*$/m,
+      `**当前版本：${version}** · **维护者：** [lzxac](https://github.com/lzxac)（Rhine Lab 衍生版）`, 'README build version')
     readme = readme.replace(/当前发行使用 `\d+\.\d+\.\d+(?:-dev\.\d+)?` 版本号/g,
       `当前发行使用 \`${version}\` 版本号`)
     readme = readme.replace(/RELEASE_NOTES_\d+\.\d+\.\d+(?:-dev\.\d+)?\.md/g,
