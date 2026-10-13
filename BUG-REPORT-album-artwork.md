@@ -4,7 +4,7 @@
 **Affects:** every build up to and including `0.6.0-dev.57`
 **Fixed in:** `0.6.0-dev.58`
 **Reported by:** a user with a 666-track local library
-**Status:** fixed locally; not yet reported upstream
+**Status:** fixed locally; reported upstream as [Bong712/Rhine-Music-Windows#4](https://github.com/Bong712/Rhine-Music-Windows/pull/4) (2026-10-13)
 
 ---
 
