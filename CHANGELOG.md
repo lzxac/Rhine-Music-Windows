@@ -484,6 +484,22 @@ reading the CSS.
     wrong place; `left` plus `right` with no width shrinks to fit the content and
     cannot spread; and stretching to the row's right edge (which an earlier pass
     did) put the right arrow 230px further right than the group has ever been.
+- `check-music-scene.mjs` assertions were rewritten for the new design: the panel
+  must have no background, shadow or blur; it must keep the transparent spacer
+  border; the lyric list must not reserve a scrollbar track; the covered block
+  must be hidden with `visibility`; the row highlights must be painted on the
+  row; the panel top must be committed only from a real title measurement; and the
+  scrolling region must reserve the scrollbar gutter, overhang the column by
+  exactly that gutter, add no gutter of its own, and not be clipped by the
+  column.
+
+Deliberately left for later versions, as agreed: moving the album information into its own collapse, background blur, and per-word (karaoke) lyrics. Windows real-present frame-rate acceptance remains pending.
+
+
+## 0.7.0-dev.4 (2026-10-13)
+
+Two additions on top of `0.7.0-dev.3`'s display fixes.
+
 - Add a lyric text size control: `A－` and `A＋` on the panel's control row, six
   steps from the size the panel has always used up to 1.75×, disabled at each end
   and remembered between sessions.
@@ -518,13 +534,4 @@ reading the CSS.
   - Measured in centre mode: an ordinary line's left and right insets are equal
     (299.4px against 299.4px where left-aligned it is 0 against 598.8), and the
     choice survives a reload.
-- `check-music-scene.mjs` assertions were rewritten for the new design: the panel
-  must have no background, shadow or blur; it must keep the transparent spacer
-  border; the lyric list must not reserve a scrollbar track; the covered block
-  must be hidden with `visibility`; the row highlights must be painted on the
-  row; the panel top must be committed only from a real title measurement; and the
-  scrolling region must reserve the scrollbar gutter, overhang the column by
-  exactly that gutter, add no gutter of its own, and not be clipped by the
-  column.
-
-Deliberately left for later versions, as agreed: moving the album information into its own collapse, background blur, and per-word (karaoke) lyrics. Windows real-present frame-rate acceptance remains pending.
+- Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.

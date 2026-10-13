@@ -252,9 +252,10 @@ git merge main
 ### 版本与提交
 
 - 分支 `rhine-lab`（**自有功能线**）。`main` 上只有封面串台修复（`0.6.0-dev.58`），按第 2、3 节的规则两条线分开处理，互不牵连。
-- 版本号 **`0.7.0-dev.3`**，由 `node scripts/version.mjs --allocate-dev` 分配，自动同步到 7 处（`version.json`、`package.json`、`package-lock.json`、`README.md`、`src/build-version.ts`、`app.manifest`、`DesktopProgram.cs`）。**不要手改版本号。**
-  - 该命令会在 `CHANGELOG.md` 末尾插入一条占位条目，**必须手动补全内容**（本次已补）。README 会引用 `RELEASE_NOTES_<版本>.md`，**该文件要自己写**（本次已写）。
-- `CHANGELOG.md` 与 `RELEASE_NOTES_0.7.0-dev.3.md` 已按第 5 节的规范写好。CHANGELOG 条目从旧到新排在**文件末尾**（注意顺序，不要插到开头）。
+- 版本号 **`0.7.0-dev.4`**，由 `node scripts/version.mjs --allocate-dev` 分配，自动同步到 7 处（`version.json`、`package.json`、`package-lock.json`、`README.md`、`src/build-version.ts`、`app.manifest`、`DesktopProgram.cs`）。**不要手改版本号。**
+  - 该命令会在 `CHANGELOG.md` 末尾插入一条占位条目，**必须手动补全内容**。README 会引用 `RELEASE_NOTES_<版本>.md`，**该文件要自己写**。
+  - 版本的划分：`0.7.0-dev.3` = 纯显示修复；`0.7.0-dev.4` = 在 dev.3 之上新增歌词字号与对齐两个开关。两个条目**分开写**，别把功能塞进修复条目。
+- `CHANGELOG.md` 与 `RELEASE_NOTES_0.7.0-dev.4.md` 已按第 5 节的规范写好。CHANGELOG 条目从旧到新排在**文件末尾**（注意顺序）。
 - **未推送任何东西到 GitHub**（用户要求）。
 - `scripts/check-music-scene.mjs` 里有 4 条断言原本要求"面板必须不透明/有投影/有毛玻璃"，**已改写成对新设计的断言**（不得有背景/投影/毛玻璃、必须保留透明占位边框、歌词列表不得预留滚动条槽、隐藏范围只针对被覆盖那一块且用 `visibility`）。别改回去。
 
