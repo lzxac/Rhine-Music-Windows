@@ -80,18 +80,59 @@ assert.ok(!musicAppSource.includes('LIVE LYRICS'), 'the primary lyric view must 
 assert.ok(!musicAppSource.includes('id="music-lyric-dock"'), 'the two-line lyric dock must be replaced by the scrolling panel');
 assert.ok(musicAppSource.includes('case "lyrics-toggle":'), 'the collapse button must be handled by the click dispatcher, not by an input handler');
 assert.ok(!/\.music-app\[data-lyrics-playing="true"\]\[data-mode="detail"\] #album-detail-content\s*\{\s*visibility: hidden;/.test(musicStyleSource), 'the album column must not be hidden, or its credits and cover caption disappear with it');
-assert.ok(musicStyleSource.includes('box-shadow: 0 10px 34px rgb(0 0 0 / 0.07)'), 'the panel card treatment must apply to both expanded and collapsed states');
-assert.ok(musicStyleSource.includes('background: rgb(247 246 241 / 0.9)'), 'the lyrics panel must be opaque so column text cannot show through it');
-assert.ok(musicStyleSource.includes('backdrop-filter: blur(12px)'), 'the lyrics panel must separate itself from the scene behind it');
+assert.ok(!musicStyleSource.includes('box-shadow: 0 10px 34px rgb(0 0 0 / 0.07)'), 'the lyrics panel must not paint a card shadow: it is a transparent text layer over the page');
+assert.ok(!musicStyleSource.includes('background: rgb(247 246 241 / 0.9)'), 'the lyrics panel must not paint an opaque background: the album page shows through it');
+assert.ok(!musicStyleSource.includes('backdrop-filter: blur(12px)'), 'the lyrics panel must not blur the page behind it');
+assert.ok(musicStyleSource.includes('border: 1px solid transparent'), 'the panel must keep a transparent border as a geometry spacer, so hiding its paint cannot shift the text inside it');
+assert.ok(musicStyleSource.includes('scrollbar-width: none'), 'the lyric list must not reserve a scrollbar track, which would pull the lyric text short of the album text edge');
+assert.ok(musicAppSource.includes('--lyrics-left-pad') && musicAppSource.includes('--lyrics-right-pad'), 'the panel horizontal insets must be measured from the album column at runtime, including its scrollbar allowance');
 assert.ok(musicStyleSource.includes('--lyrics-left: 58%'), 'the lyrics panel must mirror the album column geometry');
 assert.ok(!musicStyleSource.includes('.lyric-list::after'), 'the lyric list must not use head/tail spacers, which push the first lines out of view');
 assert.ok(!musicStyleSource.includes('.music-lyric-dock'), 'the retired lyric dock must not leave layout rules behind');
 assert.ok(musicStyleSource.includes('mask-image: linear-gradient('), 'the lyrics list must fade out at the panel edges');
 assert.ok(musicStyleSource.includes('font-size: clamp(15px, 1.05vw, 20px)'), 'the primary lyric text must remain legible at desktop resolutions');
 assert.ok(musicStyleSource.includes('@media (max-width: 780px)'), 'compact windows need a documented fallback for the lyrics panel');
-assert.ok(musicStyleSource.includes('.music-app[data-lyrics-visible="true"][data-mode="detail"] #album-detail-content'), 'detail scrolling must still account for visible lyrics');
+assert.ok(!musicStyleSource.includes('.music-app[data-lyrics-visible="true"][data-mode="detail"] #album-detail-content'), 'showing lyrics must not change the album column padding, which shifted the detail page content sideways');
+assert.ok(musicStyleSource.includes('#album-detail-content .album-detail-body'), 'the lyrics panel must hide only the album block it covers, not the whole column');
+assert.ok(/data-lyrics-playing="true"\][\s\S]{0,80}\.album-detail-body\s*\{[\s\S]{0,80}visibility: hidden;/.test(musicStyleSource), 'the covered album block must be hidden with visibility, not display:none, which pulled the credits up into the panel');
 assert.ok(musicStyleSource.includes('.lyric-line.active'), 'the active lyric line must be visually distinguished');
 assert.ok(musicStyleSource.includes('@media (prefers-reduced-motion: reduce)'), 'lyric styling must honor the operating-system reduced-motion setting');
+// The panel's top is measured from the album title's own box and is only written
+// when that box is real. Both boxes collapse to zero together while the detail
+// pane is entering or the column is not laid out, and summing them then produced
+// "0 + cached offset" — a plausible number no measurement could contradict, which
+// parked the panel above the top of the window (measured: --lyrics-top -17px).
+assert.ok(musicAppSource.includes('lyricsTitleTop = Math.round(albumTitle.getBoundingClientRect().top)'), 'the panel top must be measured from the album title box itself');
+assert.ok(/if \(lyricsTitleTop !== null\) \{[\s\S]{0,120}setProperty\("--lyrics-top"/.test(musicAppSource), 'the panel top must only be written from a real measurement, never from an unlaid-out box');
+assert.ok(!musicAppSource.includes('columnTop + lyricsTitleOffset'), 'the panel top must not add the title offset to the column position, which writes a wrong number while the column has no layout');
+// The album text and the lyrics card must end on the same right edge whether or
+// not the track list overflows. A scrollbar takes its width out of the content
+// box, so the scroller reserves the gutter always and grows past the column by
+// exactly that gutter; the column must not clip that overhang away.
+assert.ok(musicStyleSource.includes('scrollbar-gutter: stable'), 'the scrolling region must reserve the scrollbar gutter always, so the album text keeps one width whether or not the list overflows');
+assert.ok(musicStyleSource.includes('margin-right: calc(-1 * var(--detail-scrollbar))'), 'the scrolling region must overhang the column by exactly the scrollbar gutter: not overhanging left the album text short of the card edge, and overhanging further pushed it past');
+assert.ok(musicStyleSource.includes('padding-right: 0;'), 'the scrolling region must not add a gutter of its own on top of the reserved scrollbar track');
+assert.ok(/#album-detail-content\s*\{[\s\S]{0,400}overflow: visible/.test(musicStyleSource), 'the album column must not clip the scrolling region overhang, which hid the scrollbar entirely');
+// The lyric size control scales the lines by MULTIPLYING the responsive clamp, and
+// the rule must be scoped to the app: a lyric line is a `<button>`, and the app's
+// own `.music-app button { font-size: inherit }` carries two classes, so a bare
+// `.lyric-line` rule lost to it and the control did nothing at all.
+assert.ok(musicStyleSource.includes("var(--lyrics-font-scale"), 'the lyric lines must be scaled by the stored size factor');
+assert.ok(/\.music-app \.lyric-line \{[\s\S]{0,900}calc\(clamp\(15px, 1\.05vw, 20px\) \* var\(--lyrics-font-scale/.test(musicStyleSource), 'the size factor must multiply the responsive clamp, and be scoped to the app so it outranks the app-wide button font-size rule');
+assert.ok(musicAppSource.includes("const LYRIC_SIZES = [1,"), 'the smallest lyric size must be the size the panel shipped with, which is why the list starts at 1');
+assert.ok(musicAppSource.includes('id="lyrics-size-up"') && musicAppSource.includes('id="lyrics-size-down"'), 'the lyric size control must be reachable in the panel');
+assert.ok(musicAppSource.includes("panel.style.setProperty(\"--lyrics-font-scale\""), 'the stored size must be applied as a custom property on the panel');
+assert.ok(musicAppSource.includes("preferences.lyricsSize"), 'the lyric size choice must persist between sessions');
+assert.ok(musicStyleSource.includes(".lyrics-band-controls"), 'the size buttons must share the toggle row, not add a row that would grow the collapsed card');
+// Lyric alignment is state-driven: a data attribute on the panel, matched by the
+// stylesheet, so a third mode is one rule rather than another branch in the render
+// path. It must not touch the collapsed card, which is right-aligned by its band.
+assert.ok(musicAppSource.includes('panel.dataset.lyricsAlign = mode'), 'the lyric alignment must be written to a data attribute on the panel');
+assert.ok(musicAppSource.includes('const LYRIC_ALIGNS: LyricAlign[] = ["left", "center"]'), 'the lyric alignment modes must live in one list, so adding a mode is one entry');
+assert.ok(musicAppSource.includes('id="lyrics-align-toggle"') && musicAppSource.includes('case "lyrics-align"'), 'the alignment control must be reachable in the panel');
+assert.ok(musicAppSource.includes("preferences.lyricsAlign"), 'the alignment choice must persist between sessions');
+assert.ok(/\.music-lyrics-panel\[data-lyrics-align="center"\] \.lyric-line/.test(musicStyleSource), 'centring must be scoped to the lyric lines so the collapsed card keeps its right alignment');
+assert.ok(musicStyleSource.includes('transform-origin: center center'), 'the active line must re-anchor its transform when centred, or it grows to one side');
 assert.ok(themeSwitchSource.includes('.music-app[data-theme="dusk"] .theme-switch::before'), 'the top theme selector must place its active pill on dusk');
 assert.ok(themeSwitchSource.includes('translateX(calc(200% + 8px))'), 'the top theme selector must place its active pill on night');
 const mainCamera = new THREE.PerspectiveCamera();

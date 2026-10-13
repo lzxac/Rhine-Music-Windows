@@ -9,6 +9,28 @@
   width: 0;
   border-bottom: 0;
 }
+/* In the album detail list the hover band belongs to the whole row, not just the
+   play button. The row is a flex line of the button plus the two always-visible
+   tool buttons, so a background on the button stopped 71px short of the rule
+   below it while the rule itself (on .track-item) ran the full width. Moving the
+   highlight to the row makes the band match the rule and the tab bar above it.
+   Scoped to the album list: the playlist panel keeps its own row treatment. */
+#album-detail-content .track-item {
+  transition: background 0.15s;
+}
+#album-detail-content .track-item:hover {
+  background: var(--veil);
+}
+/* The button no longer paints its own hover fill; it still changes colour, and
+   the row behind it provides the fill across the full width. */
+#album-detail-content .track-item .track-row:hover {
+  background: none;
+}
+/* Likewise the tool buttons: they keep their colour response without cutting a
+   second, narrower band out of the row's. */
+#album-detail-content .track-item .track-tools button:hover {
+  background: none;
+}
 .track-tools,
 .playlist-track-actions,
 .queue-track-actions {
@@ -276,7 +298,12 @@
   scrollbar-width: thin;
   text-align: center;
 }
-.lyric-line {
+/* This block is scoped to `.lyrics-lines`, the container it was written for.
+   Unscoped, its `.lyric-line` rule won on source order over the scrolling
+   lyrics panel's own rule in music.css (this file loads last) and silently
+   overrode that panel's padding, font-size and line-height — the panel is a
+   different component that happens to share the class name. */
+.lyrics-lines .lyric-line {
   display: block;
   width: 100%;
   padding: 9px 10px;
@@ -285,11 +312,11 @@
   line-height: 1.6;
   transition: color 140ms ease, transform 140ms ease;
 }
-.lyric-line:hover,
-.lyric-line.active {
+.lyrics-lines .lyric-line:hover,
+.lyrics-lines .lyric-line.active {
   color: var(--ink);
 }
-.lyric-line.active {
+.lyrics-lines .lyric-line.active {
   color: var(--accent);
   transform: scale(1.025);
 }

@@ -8,6 +8,10 @@ export class MusicTrackFocus {
 
   reveal(container: HTMLElement, row: HTMLButtonElement, reduced: boolean) {
     this.cancel();
+    // The pulse is painted on the row's line box, not on the play button: the
+    // button is a flex item beside the two always-visible tool buttons, so a
+    // highlight on it stops short of the rule running under the whole row.
+    const line = row.parentElement ?? row;
     let frame = 0;
     let pulse: Animation | undefined;
     let hold: ReturnType<typeof setTimeout> | undefined;
@@ -18,7 +22,7 @@ export class MusicTrackFocus {
       cancelAnimationFrame(frame);
       pulse?.cancel();
       clearTimeout(hold);
-      row.classList.remove("search-track-highlight");
+      line.classList.remove("search-track-highlight");
       container.removeEventListener("wheel", cancel);
       container.removeEventListener("pointerdown", cancel);
       container.removeEventListener("touchstart", cancel);
@@ -40,13 +44,13 @@ export class MusicTrackFocus {
     const centerOffset = tabsHeight + Math.max(0, (container.clientHeight - tabsHeight - row.offsetHeight) / 2);
     const target = Math.max(0, Math.min(container.scrollHeight - container.clientHeight, rowTop - centerOffset));
     const highlight = () => {
-      if (!active || !row.isConnected) { cancel(); return; }
+      if (!active || !line.isConnected) { cancel(); return; }
       row.focus({ preventScroll: true });
       if (reduced) {
-        row.classList.add("search-track-highlight");
+        line.classList.add("search-track-highlight");
         hold = setTimeout(cancel, 1100);
       } else {
-        pulse = row.animate([
+        pulse = line.animate([
           { backgroundColor: "transparent", boxShadow: "inset 3px 0 transparent", offset: 0, easing: "ease-in-out" },
           { backgroundColor: "var(--search-track-tint)", boxShadow: "inset 3px 0 var(--accent)", offset: 0.32 },
           { backgroundColor: "var(--search-track-tint)", boxShadow: "inset 3px 0 var(--accent)", offset: 0.48, easing: "ease-in-out" },

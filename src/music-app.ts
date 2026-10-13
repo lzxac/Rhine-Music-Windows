@@ -104,6 +104,11 @@ const preferences = {
     soundVolume: 0.22,
     renderQuality: undefined as RenderQuality | undefined,
     lyricsCollapsed: false,
+    // Multiplier on the lyric text, kept as an index so the steps are the ones
+    // listed in LYRIC_SIZES rather than an arbitrary slider value.
+    lyricsSize: 0,
+    // "left" (the layout the panel shipped with) or "center".
+    lyricsAlign: "left" as LyricAlign,
   },
   ...read<
     Partial<{
@@ -119,9 +124,91 @@ const preferences = {
       soundVolume: number;
       renderQuality: RenderQuality;
       lyricsCollapsed: boolean;
+      lyricsSize: number;
+      lyricsAlign: LyricAlign;
     }>
   >("rhine-music-preferences", {}),
 };
+// Lyric text sizes. The first entry is the size the panel has always used, and it
+// is the floor on purpose: anything smaller reads badly at this weight and column
+// width. Each step is applied as a multiplier, because the stylesheet sizes the
+// lines with `clamp()` that is different at every breakpoint — multiplying keeps
+// that responsive behaviour instead of replacing it with one fixed size.
+const LYRIC_SIZES = [1, 1.15, 1.3, 1.45, 1.6, 1.75];
+const lyricSizeIndex = () => {
+  const stored = preferences.lyricsSize;
+  return Number.isInteger(stored) && stored >= 0 && stored < LYRIC_SIZES.length
+    ? stored
+    : 0;
+};
+// Lyric alignment. Written to a data attribute on the panel and matched by the
+// stylesheet, so adding a third mode later is one rule plus one entry here rather
+// than another branch inside the render path. `left` is the default the panel
+// shipped with.
+type LyricAlign = "left" | "center";
+const LYRIC_ALIGNS: LyricAlign[] = ["left", "center"];
+const LYRIC_ALIGN_LABELS: Record<LyricAlign, string> = {
+  left: "左对齐",
+  center: "居中对齐",
+};
+const LYRIC_ALIGN_GLYPHS: Record<LyricAlign, string> = {
+  left: "≡",
+  center: "☰",
+};
+const lyricAlign = (): LyricAlign => {
+  const stored = preferences.lyricsAlign;
+  return stored && (LYRIC_ALIGNS as string[]).includes(stored)
+    ? (stored as LyricAlign)
+    : "left";
+};
+function applyLyricAlign() {
+  const panel = document.querySelector<HTMLElement>("#music-lyrics-panel");
+  if (!panel) return;
+  const mode = lyricAlign();
+  panel.dataset.lyricsAlign = mode;
+  const button = document.querySelector<HTMLButtonElement>("#lyrics-align-toggle");
+  if (!button) return;
+  // The button shows the mode it will switch TO, so its own label reads as the
+  // action rather than the current state.
+  const next = LYRIC_ALIGNS[(LYRIC_ALIGNS.indexOf(mode) + 1) % LYRIC_ALIGNS.length];
+  button.textContent = LYRIC_ALIGN_GLYPHS[next];
+  button.title = `切换为${LYRIC_ALIGN_LABELS[next]}`;
+  button.setAttribute("aria-label", `切换歌词对齐方式，当前${LYRIC_ALIGN_LABELS[mode]}`);
+}
+function stepLyricAlign() {
+  const next = LYRIC_ALIGNS[(LYRIC_ALIGNS.indexOf(lyricAlign()) + 1) % LYRIC_ALIGNS.length];
+  preferences.lyricsAlign = next;
+  savePrefs();
+  applyLyricAlign();
+  // Alignment does not change row heights, but the active line's transform is
+  // origin-sensitive under centring, so re-centre for a clean state.
+  activeLyric = -2;
+  syncLyricsPosition(player.playbackTime);
+}
+function applyLyricSize() {
+  const panel = document.querySelector<HTMLElement>("#music-lyrics-panel");
+  if (!panel) return;
+  const index = lyricSizeIndex();
+  panel.style.setProperty("--lyrics-font-scale", String(LYRIC_SIZES[index]));
+  const smaller = document.querySelector<HTMLButtonElement>("#lyrics-size-down");
+  const larger = document.querySelector<HTMLButtonElement>("#lyrics-size-up");
+  if (smaller) smaller.disabled = index === 0;
+  if (larger) larger.disabled = index === LYRIC_SIZES.length - 1;
+}
+function stepLyricSize(direction: number) {
+  const next = Math.max(0, Math.min(LYRIC_SIZES.length - 1, lyricSizeIndex() + direction));
+  if (next === lyricSizeIndex()) return;
+  preferences.lyricsSize = next;
+  savePrefs();
+  applyLyricSize();
+  // The rows change height with the size, so re-centre the active line.
+  activeLyric = -2;
+  syncLyricsPosition(player.playbackTime);
+}
+// Applied after the panel markup is in the document (it is written by the
+// `stage.innerHTML` assignment below), and after the `const` declarations above —
+// calling it earlier would either miss the element or hit a temporal-dead-zone
+// ReferenceError, and that exact mistake has stopped this app's boot once before.
 let renderQuality = normalizeQuality(
   preferences.quality === "original" &&
     preferences.renderQuality?.pixelRatio === 1.5 &&
@@ -205,6 +292,11 @@ let lyricStateText = "尚未载入歌词。";
 // new track must be applied even when its index happens to equal the old one.
 let activeLyric = -2;
 let lyricClockFrame = 0;
+// Declared up here with the rest of the lyric state, not beside its function
+// further down: syncLyricsPanel() already runs while this module is still being
+// evaluated (the player's own initialiser calls it), and a `let` below that point
+// is in its temporal dead zone, which threw and aborted the whole boot.
+let lyricsSongTrackId: string | null = null;
 const player = new MusicPlayer({
   volume: preferences.volume,
   songFadeEnabled: preferences.songFade,
@@ -242,7 +334,17 @@ stage.innerHTML = `
   </header>
   <aside id="music-lyrics-panel" class="music-lyrics-panel" aria-label="同步滚动歌词" hidden>
     <div class="lyrics-band">
-      <button type="button" id="lyrics-toggle" class="lyrics-toggle" data-action="lyrics-toggle" aria-expanded="true" aria-controls="lyrics-panel-body" aria-label="收起歌词"><span class="lyrics-toggle-glyph" aria-hidden="true">›</span><span id="lyrics-toggle-label">收起歌词</span></button>
+      <div id="lyrics-song-info" class="lyrics-song-info" hidden><strong id="lyrics-song-title"></strong><span id="lyrics-song-artist"></span></div>
+      <div class="lyrics-band-controls">
+        <button type="button" id="lyrics-toggle" class="lyrics-toggle" data-action="lyrics-toggle" aria-expanded="true" aria-controls="lyrics-panel-body" aria-label="收起歌词"><span class="lyrics-toggle-glyph" aria-hidden="true">›</span><span id="lyrics-toggle-label">收起歌词</span></button>
+        <div class="lyrics-size" role="group" aria-label="歌词字号">
+          <button type="button" id="lyrics-size-down" data-action="lyrics-size-down" aria-label="缩小歌词字号" title="缩小歌词字号">A－</button>
+          <button type="button" id="lyrics-size-up" data-action="lyrics-size-up" aria-label="放大歌词字号" title="放大歌词字号">A＋</button>
+        </div>
+        <div class="lyrics-align" role="group" aria-label="歌词对齐">
+          <button type="button" id="lyrics-align-toggle" data-action="lyrics-align" aria-label="切换歌词对齐方式" title="切换歌词对齐方式">⇤</button>
+        </div>
+      </div>
       <p id="lyrics-panel-status" class="lyrics-panel-status" role="status" aria-live="polite"></p>
       <p id="lyrics-panel-current" class="lyrics-panel-current" title="展开歌词">—</p>
     </div>
@@ -289,6 +391,10 @@ stage.dataset.lyricsPlaying = "false";
   }
   if (label) label.textContent = preferences.lyricsCollapsed ? "展开歌词" : "收起歌词";
 }
+// The panel now exists, so the stored lyric size can be applied before its first
+// paint instead of flashing at the default size.
+applyLyricSize();
+applyLyricAlign();
 const titleMotion = setupMusicTitleLayout(stage);
 const textMotion = setupMusicTextMotion(stage);
 // Keep the previous navigation available while the ruler version is on trial.
@@ -965,11 +1071,26 @@ function renderDetail() {
     sameAlbum = detailIdentity === a.id,
     scroll = sameAlbum ? article.scrollTop : 0;
   detailIdentity = a.id;
+  // The lyrics panel covers the column from the album title down to the last
+  // track row, so only that span is wrapped and hidden while the panel is up.
+  // Three blocks deliberately stay outside it:
+  //   - the overline, whose album switcher sits above the panel's top edge;
+  //   - the scrolling region (it only ever holds the covered span);
+  //   - the producer credits, which are a pinned footer.
+  // The column is one scroll box, so the credits follow the track list and their
+  // position changes with the album. Pinning them as a footer instead puts them
+  // on the same bottom line as the cover caption in the opposite corner, and
+  // makes both move together as the window resizes.
   article.innerHTML = `<div class="detail-overline"><span>ALBUM ${String(selected + 1).padStart(3, "0")}</span><div class="detail-album-navigation" role="group" aria-label="切换专辑"><button data-action="prev" aria-label="上一张专辑">↑ 上一张</button><button data-action="next" aria-label="下一张专辑">下一张 ↓</button></div></div>
+    <div class="album-detail-scroll">
+    <div class="album-detail-body">
     <h1 title="${esc(a.title)}">${albumTitleMarkup(a.title)}</h1><p class="detail-artist">${esc(a.artist)}${a.offline ? '<span class="offline-badge">目录离线</span>' : ""}</p>
     <div class="album-facts">${fields.map(([name, value]) => `<div><small>${name}</small><span>${esc(String(value))}</span></div>`).join("")}</div>
     <div class="music-tabs" role="tablist" aria-label="专辑信息"><button role="tab" id="tab-tracks" data-tab="tracks" tabindex="${activeTab === "tracks" ? 0 : -1}" aria-selected="${activeTab === "tracks"}" aria-controls="album-tab-content"><span>01</span> 歌单</button><button role="tab" id="tab-about" data-tab="about" tabindex="${activeTab === "about" ? 0 : -1}" aria-selected="${activeTab === "about"}" aria-controls="album-tab-content"><span>02</span> 专辑介绍</button><i class="music-tab-indicator" aria-hidden="true"></i></div>
-    <div id="album-tab-content" role="tabpanel" aria-labelledby="tab-${activeTab}">${activeTab === "tracks" ? trackList(a, discs) : albumAbout(a)}</div>`;
+    <div id="album-tab-content" role="tabpanel" aria-labelledby="tab-${activeTab}">${activeTab === "tracks" ? trackList(a, discs) : albumAbout(a)}</div>
+    </div>
+    </div>
+    <footer class="album-detail-footer">${producerBlock(a)}</footer>`;
   article.scrollTop = scroll;
   syncTabIndicator(false);
   documentDecryption.reset(
@@ -995,13 +1116,13 @@ function trackList(a: MusicAlbum, discs: number) {
       disc = discNo;
       return `${head}<div class="track-item"><button class="track-row" data-track="${esc(t.id)}" ${t.offline ? "disabled" : ""} aria-label="播放 ${esc(t.title)}"><span class="track-number">${String(t.trackNumber || index + 1).padStart(2, "0")}</span><span class="track-name"><strong>${esc(t.title)}</strong><small>${esc(t.artist)}</small></span><span class="track-format">${esc(t.format)}${!t.browserPlayable ? '<i title="需要兼容的播放内核"> ↗</i>' : ""}</span><span class="track-duration">${time(t.duration)}</span></button>${!demo ? `<div class="track-tools"><button data-action="enqueue-track" data-track-id="${esc(t.id)}" ${t.offline ? "disabled" : ""} aria-label="加入播放队列：${esc(t.title)}" title="加入播放队列">＋</button><button data-action="choose-playlist" data-track-id="${esc(t.id)}" aria-label="加入歌单：${esc(t.title)}" title="加入歌单">♫</button></div>` : ""}</div>`;
     })
-    .join("")}</div>${producerBlock(a)}`;
+    .join("")}</div>`;
 }
 function albumAbout(a: MusicAlbum) {
   return `<section class="album-about"><small>ABOUT THIS ALBUM</small>
     ${a.description ? `<p>${esc(a.description)}</p>${a.descriptionSource ? `<a class="text-button" href="${esc(a.descriptionSource.url)}" target="_blank" rel="noopener">来源：${esc(a.descriptionSource.name)} ↗</a>${a.descriptionSource.license ? `<small class="introduction-license">${esc(a.descriptionSource.license)}</small>` : ""}` : ""}` : `<h3>专辑介绍待补充</h3><p>从公开百科核对专辑与歌手后读取介绍，附上来源并保存在本机。无法确认对应专辑时保留空白。</p>`}
     ${!demo ? `<button data-action="introduction-album" class="text-button" ${introductionsStarting || library.introductions?.running ? "disabled" : ""}>${a.description ? "更新" : "查询"}专辑介绍 ↗</button><p class="introduction-feedback" data-introduction-feedback="${esc(a.id)}" role="status">${esc(introductionAlbumStatus(a))}</p>` : ""}
-    <div class="source-note"><span>本地目录</span><code>${esc(a.folder)}</code></div><div class="genre-tags">${a.rawGenres.map((g) => `<span>${esc(g)}</span>`).join("")}</div></section>${producerBlock(a)}`;
+    <div class="source-note"><span>本地目录</span><code>${esc(a.folder)}</code></div><div class="genre-tags">${a.rawGenres.map((g) => `<span>${esc(g)}</span>`).join("")}</div></section>`;
 }
 function introductionAlbumStatus(a: MusicAlbum) {
   const lookup = a.introduction;
@@ -1492,7 +1613,7 @@ async function loadLyrics(track: MusicTrack | null) {
     const result = await request<{ found: boolean; text: string }>(`/api/lyrics/${encodeURIComponent(track.id)}`);
     if (requestVersion !== lyricRequestVersion || lyricTrackId !== track.id) return;
     lyricLines = result.found ? parseLrc(result.text) : [];
-    lyricStateText = !result.found ? "歌曲所在文件夹里没有同名 LRC 歌词。" : lyricLines.length ? "点击歌词可跳转到对应时间。" : "LRC 文件没有可识别的时间戳歌词。";
+    lyricStateText = !result.found ? "歌曲所在文件夹里没有同名 LRC 歌词。" : lyricLines.length ? "点击歌词可跳转到对应时间" : "LRC 文件没有可识别的时间戳歌词。";
     activeLyric = -2;
     renderLyricRows();
     updateLyricFocus(-1);
@@ -1597,34 +1718,94 @@ function activeLyricLine(): HTMLElement | null {
  * both correct across the responsive `--detail-content-top` steps and the
  * responsive heading size, which a hand-written offset is not.
  */
+// Last measurement of the album title's own top edge, taken while the album block
+// was actually laid out. While the expanded lyrics panel stands in for that block,
+// or while the detail pane is still entering, the title reports a zero rect —
+// measuring then would throw the panel out of place (measured: --lyrics-top
+// resolved to -17px, which parks it above the top of the window). The write below
+// is guarded by the same test as the measurement: an unmeasurable title keeps the
+// previous value instead of committing a number built from a zero box.
+let lyricsTitleTop: number | null = null;
+// Same idea for the panel's bottom: only accept a reading taken from a laid-out
+// album column.
+let lyricsBottomInset: number | null = null;
 function syncLyricsPanelAlignment() {
   const panel = document.querySelector<HTMLElement>("#music-lyrics-panel");
   const column = document.querySelector<HTMLElement>("#album-detail-content");
   const stage = document.querySelector<HTMLElement>("#stage");
   if (!panel || !column || !stage) return;
   const stageHeight = stage.clientHeight;
-  const columnTop = Math.round(column.getBoundingClientRect().top);
-  const albumTitle = column.querySelector<HTMLElement>(":scope > h1");
-  // The panel starts level with the album's big title, not with the column's
-  // top edge: the overline above it is not part of the lyrics area.
-  const titleOffset = albumTitle
-    ? Math.round(albumTitle.getBoundingClientRect().top - columnTop)
-    : 0;
-  panel.style.setProperty("--lyrics-top", `${columnTop + titleOffset}px`);
-  // The collapsed card is aligned to that same title already, because its own
-  // `top` is the panel top plus this offset — so this must stay 0 and not
-  // double-count the overline.
-  panel.style.setProperty("--lyrics-collapsed-offset", "0px");
+  // A zero-width box on an element that exists means it is not being laid out.
+  const measurable = (element: HTMLElement | null): element is HTMLElement =>
+    !!element && element.getBoundingClientRect().width > 0;
+  const body = column.querySelector<HTMLElement>(".album-detail-body");
+  const albumTitle = column.querySelector<HTMLElement>(".album-detail-body > h1");
+  // The panel starts level with the album's big title, not with the column's top
+  // edge: the overline above it is not part of the lyrics area.
+  //
+  // Take the title's own viewport position rather than adding its offset to the
+  // column's. Both boxes go to zero together while the pane is not laid out, so
+  // the old sum quietly produced "0 + cached offset" — a plausible-looking but
+  // wrong number that no measurement could contradict.
+  if (measurable(albumTitle)) {
+    lyricsTitleTop = Math.round(albumTitle.getBoundingClientRect().top);
+  }
+  // Both states put their first line on the album title's line, so collapsing
+  // only changes the height and nothing moves vertically. The panel's first line
+  // sits `firstLineInset` below its own top edge (border plus padding), so the
+  // edge belongs that far above the title line — putting the edge exactly on the
+  // title leaves the first line a whole inset too low, which is what made both
+  // states sit below the title.
+  //
+  // The insets come from the stylesheet, never from the element's measured box:
+  // reading the live box made this circular, since the measurement depended on
+  // the position this code had just set, and --lyrics-collapsed-offset is one
+  // value shared by both states.
+  const panelStyles = getComputedStyle(panel);
+  const parsedInset = (name: string, fallback: number) => {
+    const value = parseFloat(panelStyles.getPropertyValue(name));
+    return Number.isFinite(value) ? value : fallback;
+  };
+  // The column's own left edge is measured from the header nav, so re-take it
+  // here: this runs on every detail render, tab switch and resize, which is
+  // exactly when the nav can have changed size.
+  const borderTop = parseFloat(panelStyles.borderTopWidth) || 0;
+  const firstLineInset = borderTop + parsedInset("--lyrics-top-inset", 16);
+  const collapsedInset = borderTop + parsedInset("--lyrics-collapsed-pad-top", 14);
+  if (lyricsTitleTop !== null) {
+    panel.style.setProperty("--lyrics-top", `${lyricsTitleTop - firstLineInset}px`);
+  }
+  panel.style.setProperty("--lyrics-collapsed-offset", `${firstLineInset - collapsedInset}px`);
+  // The panel's own horizontal padding mirrors the column's, so the lyrics sit
+  // on the same two vertical lines as the album title and its credits rule. The
+  // column's padding is not one number: it carries a scrollbar allowance that
+  // only bites once the track list is tall enough to scroll, so it is measured
+  // rather than written down. The panel's box already spans the column's, so
+  // copying the inner insets lines the two content boxes up. The lyrics list
+  // reserves no scrollbar track of its own (see .lyric-list), so there is
+  // nothing further to compensate for here.
+  const columnStyles = getComputedStyle(column);
+  const paddingLeft = parseFloat(columnStyles.paddingLeft) || 0;
+  const paddingRight = parseFloat(columnStyles.paddingRight) || 0;
+  const borderLeft = parseFloat(columnStyles.borderLeftWidth) || 0;
+  const borderRight = parseFloat(columnStyles.borderRightWidth) || 0;
+  panel.style.setProperty("--lyrics-left-pad", `${paddingLeft + borderLeft}px`);
+  panel.style.setProperty("--lyrics-right-pad", `${paddingRight + borderRight}px`);
   // The expanded panel stops at the rule that closes the track list — the
   // bottom border of its last row — which is the line the album column's own
   // content ends on. Never run past the column itself.
   const lastTrack = column.querySelector<HTMLElement>("#album-tab-content .track-item:last-of-type");
-  const columnBottom = Math.round(column.getBoundingClientRect().bottom);
-  const contentBottom = lastTrack
-    ? Math.round(lastTrack.getBoundingClientRect().bottom)
-    : Math.round(column.querySelector<HTMLElement>(".producer-section")?.getBoundingClientRect().top ?? columnBottom);
-  const limit = Math.min(contentBottom, columnBottom);
-  panel.style.setProperty("--lyrics-bottom", `${Math.max(0, stageHeight - limit)}px`);
+  if (measurable(body)) {
+    const columnBottom = Math.round(column.getBoundingClientRect().bottom);
+    const contentBottom = measurable(lastTrack)
+      ? Math.round(lastTrack.getBoundingClientRect().bottom)
+      : Math.round(column.querySelector<HTMLElement>(".producer-section")?.getBoundingClientRect().top ?? columnBottom);
+    const limit = Math.min(contentBottom, columnBottom);
+    lyricsBottomInset = Math.max(0, stageHeight - limit);
+  }
+  if (lyricsBottomInset !== null) {
+    panel.style.setProperty("--lyrics-bottom", `${lyricsBottomInset}px`);
+  }
   // No width cap: the album switcher sits above the panel's top edge, so
   // spanning the column's full width cannot cover it.
 }
@@ -1703,10 +1884,31 @@ function syncLyricsPanel() {
       ? "歌词读取失败"
       : "暂无歌词";
   if (status.textContent !== statusText) status.textContent = statusText;
+  syncLyricsSongInfo(track, !hasLyrics || preferences.lyricsCollapsed);
   stage.dataset.lyricsVisible = String(!panelElement.hidden);
   // While the expanded panel occupies the album column, that column stands down
   // so the two never draw over each other. Collapsing brings the album back.
   stage.dataset.lyricsPlaying = String(!panelElement.hidden && !preferences.lyricsCollapsed);
+}
+
+// The song playing, shown in the space the collapse toggle leaves on its left.
+// The text is written as literal text, never markup: track metadata is
+// third-party data.
+function syncLyricsSongInfo(track: MusicTrack | null | undefined, hide: boolean) {
+  const info = document.querySelector<HTMLElement>("#lyrics-song-info");
+  if (!info) return;
+  const title = document.querySelector<HTMLElement>("#lyrics-song-title");
+  const artist = document.querySelector<HTMLElement>("#lyrics-song-artist");
+  if (!track || hide) {
+    info.hidden = true;
+    lyricsSongTrackId = null;
+    return;
+  }
+  info.hidden = false;
+  if (lyricsSongTrackId === track.id) return;
+  lyricsSongTrackId = track.id;
+  if (title) title.textContent = track.title;
+  if (artist) artist.textContent = track.artist;
 }
 
 function syncLyricClock() {
@@ -1937,6 +2139,15 @@ document.addEventListener("click", (e) => {
       break;
     case "lyrics-toggle":
       setLyricsCollapsed(!preferences.lyricsCollapsed);
+      break;
+    case "lyrics-size-down":
+      stepLyricSize(-1);
+      break;
+    case "lyrics-size-up":
+      stepLyricSize(1);
+      break;
+    case "lyrics-align":
+      stepLyricAlign();
       break;
     case "lyrics-panel":
       // The lyrics panel is persistent; this entry only brings it back into view.

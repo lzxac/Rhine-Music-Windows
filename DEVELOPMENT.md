@@ -137,66 +137,148 @@ git merge main
 
 ---
 
-## 9. 交接说明（2026-10-13 第二版，给下一个会话的我）
+## 9. 交接说明（2026-10-13 第三版，给下一个会话的我）
 
 > 这一节是**给 AI 助手看的**。用户不需要读。
 
 ### 一句话状态
 
-**右侧常驻滚动歌词面板已经完工并被用户逐项确认。** 下一步是**优化显示效果**（用户原话："现在我们要优化一下显示效果了"）。
+**歌词面板的显示效果改造已全部完工并逐项验收。** 本轮做了九件事：面板透明化、展开时隐藏下层专辑信息、制作人员区块保留、歌词与专辑文字竖向对齐、修掉制作人员横线变宽、去掉状态文案句号、收起态三行靠右、两态按钮位置一致、歌词居中位置修正。**下一步等用户提新需求**（他说"还有东西要加"，尚未说明）。
 
-### 已完成并确认的效果
+### 本轮已完成并确认的效果
 
-用户逐条验收通过的：
-
-| 功能 | 状态 |
+| 改动 | 验收结果 |
 |---|---|
-| 播放时右侧出现滚动歌词，当前句精确居中 | ✅ 实测偏离 1px |
-| 平滑滚动（不再是"跳一行再飘回来"） | ✅ |
-| 播放中手动滚动 → 停手 4 秒自动回到当前句 | ✅ |
-| 点击某行歌词跳转到该时间 | ✅ |
-| 收起 → 紧凑卡片，状态持久化；展开 → 完整面板 | ✅ |
-| 展开与收起是同一张卡片（相同边框/圆角/阴影/宽度） | ✅ |
-| 面板不遮挡「上一张/下一张」按钮 | ✅ 按钮在面板顶边之上 |
-| 专辑列的文字不再消失（ALBUM CREDITS / 补充在线资料 / 卡片标题） | ✅ |
-| 面板顶边对齐专辑大标题、底边停在歌单最后一条横线 | ✅ |
+| 面板去掉背景/投影/毛玻璃，与专辑页一样透明 | ✅ 内部几何 0 位移（保留 1px 透明边框当占位） |
+| 展开时隐藏下层专辑信息 | ✅ 精确只藏面板覆盖的那一块 |
+| 制作人员区块（ALBUM CREDITS / 补充在线资料）保留可见 | ✅ 分毫不移 |
+| 歌词与专辑文字同一条竖线 | ✅ 左右各 1px（占位边框所致） |
+| 制作人员横线不再变宽 9px | ✅ 展开前后 0.00 位移 |
+| 状态文案去掉句末句号 | ✅ |
+| 收起态三行（按钮/状态行/当前歌词行）整体靠右 | ✅ 三行右边界 0.00px |
+| 收起/展开的按钮水平位置一致 | ✅ 0.00px |
+| 收起/展开首行都对齐专辑大标题 | ✅ 都在 y=200 |
+| 歌词居中句落在面板中心 | ✅ 5 个视口高度下偏离 ≤0.5px |
+| 收起卡片首行与大标题同线；横线不再压歌手名 | ✅ 横线余量 16.33px |
+| 制作人员块与左下角卡片说明同一条水平线、随窗口同步缩放 | ✅ 4 视口 × 3 种曲目数下差 0.0px |
+| 制作人员块与左下角卡片说明**同高**（各 38px，六个宽度下高差与底边差都是 0） | ✅ 文字未被裁切 |
+| 专辑详情页行悬停蓝条铺满整行（与页签栏、与行横线齐平） | ✅ 左右端差 0.00px |
+| 点击歌曲跳转时的脉冲浅黄条也铺满整行（含正常动效与降低动效两条路径） | ✅ 左右端差 0.00px，左侧 3px 竖线同在整行上 |
+| 歌单很长时滚动的行不会跑到制作人员文字后面 | ✅ 3 视口 × 3 曲目数 × 21 个滚动位置，实际可见重叠 0.00px |
 
 ### 关键设计约束（改动前必读）
 
-1. **面板是 `.music-detail` 的兄弟节点，不是子节点。** CSS 自定义属性不能跨兄弟继承——这个坑已经踩过一次（`--detail-content-top`），导致面板高度失控、看起来是白纸。**任何新变量必须声明在 `#stage` 上。**
-2. **几何一律实测，不要写死。** `syncLyricsPanelAlignment()` 在 `renderDetail()`、切换歌单/专辑介绍页签、窗口 resize 时都会重算：`--lyrics-top`（对齐大标题）、`--lyrics-bottom`（停在歌单末行底边）、`--lyrics-collapsed-offset`（固定 0，因为 `top` 已包含标题偏移）。
+1. **面板是 `.music-detail` 的兄弟节点，不是子节点。** CSS 自定义属性不能跨兄弟继承——这个坑已经踩过一次（`--detail-content-top`）。**任何新变量必须声明在 `#stage` 上。**
+2. **几何一律实测，不要写死。** `syncLyricsPanelAlignment()` 会设：`--lyrics-top`、`--lyrics-bottom`、`--lyrics-collapsed-offset`、`--lyrics-left-pad`、`--lyrics-right-pad`。
+   **两个内缩值必须从「样式表」读，绝不能读元素的实时 computed style** —— 变量是展开/收起两态共用的，读实时值会让结果取决于"最后一次重算发生在哪个态"，差 2px。用 `--lyrics-top-inset`(16px) 和 `--lyrics-collapsed-pad-top`(14px)。
+   **`--lyrics-top` 直接量大标题自己的视口位置**（`lyricsTitleTop = round(h1.getBoundingClientRect().top)`），再减去 `border + --lyrics-top-inset`。**不要写成「专辑栏位置 + 标题偏移」的加法**：进入详情页的过程中专辑栏和大标题会同时量成 0，那个加法就悄悄变成「0 + 缓存偏移」，写出一个看起来合理但完全错误的数字 —— 实测被写成 `-17px`，卡片跑到页面顶边之上，而且进入详情页后不会被纠正。
+   **写入必须和测量受同一个守卫保护**：`measurable()` 只判断「要不要测量」是不够的，`if (lyricsTitleTop !== null)` 才决定「要不要写」。量不到时保留上一次的值，绝不凭空造一个。`check-music-scene.mjs` 里有 3 条断言守着这一点。
 3. **不要在 `.lyric-list` 上加 `scroll-behavior: smooth`**，也不要给活动行加 `font-size` 过渡——两者都已证实会破坏滚动动画。
-4. **不要用 `visibility: hidden` 隐藏专辑列**，那会连带隐藏封面标题和制作人员区块。
+4. **隐藏被面板覆盖的那一块，用 `visibility: hidden`，绝不用 `display: none`。** `display:none` 会让后面的制作人员区块上浮进面板区域（实测 y 547 → 200，被面板压掉 325px）。隐藏目标是 `#album-detail-content > .album-detail-body`，**制作人员区块和 overline 必须留在外面**。
+5. **`.lyric-list` 必须 `position: absolute; inset: 0` 钉死成容器尺寸。** 用 `height: 100%` 会被内容顶开：`padding-block` 本身超过容器高度时列表退回内容高、溢出容器，**它自己的中心就跑到容器中心下方**，于是"居中的那句偏下"（实测偏 94px）。跟随动画对的是**列表中心**，不是面板中心。
+6. **`.lyric-list` 的 `padding-block` 不能用百分比。** 对绝对定位元素百分比内边距按**容器宽度**解析、再**加到钉死的高度上**（实测 30% 把列表顶到 405px vs 容器 299px），中心又跑了。用视口单位 `max(140px, 17vh)`：下限≈13.5vh（任意行要能滚到中心）、上限≈24vh（两个内边距要装进容器），17vh 落在中间。
+7. **`.lyric-line` 这个类名被两个组件共用！** `music-playlists.css` 里有一组**死代码**（`.lyrics-header/.lyrics-lines/.lyrics-current/.lyrics-status`，源码里没有任何地方生成这些类名），其中裸的 `.lyric-line` 规则排在后面、特异性相同，**一直在覆盖面板的样式**（把面板歌词压成 13px/10px 内边距）。已给它加上 `.lyrics-lines` 作用域。
+8. **不要加回 `[data-lyrics-visible] #album-detail-content { padding-right: 0 }`。** 它会把栏内容区撑宽 9px，让标题/发行信息/页签/制作人员横线全部右移 9px。
+9. **`.lyrics-song-info` 是绝对定位在 `.lyrics-band` 左上角**（与收起按钮同一行）。它是上下两行的竖排（歌名+歌手），**不要改成并排** —— 用户明确要求保持竖排。横线靠 `--lyrics-rule-drop: 14px` + 等量负 `margin-bottom` 单独下移（只有边框动，其他 0 位移）。
+10. **专辑栏现在是「overline + 可滚动区 + 固定底栏」结构**，不再是一个滚动盒：
+    ```
+    #album-detail-content          position:relative; flex column; overflow:hidden（自己不再滚动）
+      ├─ .detail-overline          常驻（flex item）
+      ├─ .album-detail-scroll      flex:1 1 auto; min-height:0; overflow:auto（滚动条与 padding-right:9px 在这里）
+      │    └─ .album-detail-body   ← 被歌词面板隐藏的那一块（h1 等都在里面）
+      └─ .album-detail-footer      position:absolute; bottom:var(--credits-bottom)（不在 flex 流里！）
+           └─ .producer-section
+    ```
+    **底栏必须绝对定位，不能用 flex 项 + 负 margin**：flex 项无法被推到容器内容盒之外，制作人员块会停在卡片说明线上方（实测差 −10px，反复调 margin 都不对）。
+    **它和左下角 `.card-caption` 要同高同底**，全部由挂在 `#album-detail-content` 上的三个变量驱动：
+    - `--credits-h`（高度，基准 38px；`max-width:1100px` 那一档是 36px，因为卡片说明自己的提示行在那档变成 8px）
+    - `--credits-gap`（两行间距，10px）
+    - `--credits-bottom`（基准 30px = 卡片说明的 82px − 栏的 52px；`max-width:1180px` 档 7px、`max-width:1100px` 档 42px）
+    高度构成：标签行 = `--credits-h − --credits-gap − 12px`，说明行固定 12px。**改动这些变量要同时核对卡片说明那两行的高度**，否则两块会错开。
+    **`.album-detail-scroll` 必须 `margin-bottom: calc(var(--credits-h) + var(--credits-bottom))`**，让滚动区自己的盒子止于底栏顶边。它是撑满栏高的 flex 项，不给这个 margin 就会一直延伸到栏底、**压在绝对定位的底栏身上**，任何滚到那一段的歌单行都会从制作人员文字后面透出来（实测：任意滚动位置有 1~2 行、最多一整行高度）。**用 `padding-bottom` 不管用** —— 内边距不缩小盒子，重叠照旧；必须是 margin。这一条我在同一个坑里来回试了四次才找对。
+    **专辑栏必须 `overflow: visible`**（不是 `hidden`）：滚动区故意往外溢出滚动条那 10px（见下），`hidden` 会把这段整个裁掉，滚动条不是被压住而是**直接消失**（实测 `elementsFromPoint` 在溢出区只取到专辑栏的裁剪边）。
+    **专辑栏的 `right` 不能动**：`detail-album-navigation`（「上一张/下一张」）和面板的垂直间隙只有 **1px**（导航底 182、面板顶 183），把栏的右边界外推会把导航推进面板区域。所以「让滚动条离开歌词卡」不能靠加宽专辑栏。
+    **滚动条靠这三个属性一起配合才落在卡片外、且文字与卡片右边界齐平**（缺一个就错位）：
+    - `.album-detail-scroll { scrollbar-gutter: stable; margin-right: calc(-1 * var(--detail-scrollbar)); padding-right: 0; }`
+    - `--detail-scrollbar` 为 10px。
+    **为什么是「只外溢 gutter，不外溢滚动条宽度」**：滚动条会从内容盒扣掉自己的宽度，所以滚动区右边界在卡片右边界时，专辑文字会比卡片短 19px（9px padding + 10px 滚动条），而卡片不动 —— 这就是用户看到的现象。外溢 10px 后文字正好落在卡片右边界、滚动条在其外侧；**外溢 19px 会过头**（实测文字超出卡片 19px）。
+    **`scrollbar-gutter: stable` 是让它确定的关键**：不加它，滚动条只在歌单真的溢出时才占位，于是**同一张专辑在曲目多少不同时专辑文字有两种宽度**；而且在「滚动条覆盖式」的平台上文字会超出卡片。加上后不论溢不溢出，内容盒宽度恒定（实测：1 首与 11 首、3 个断点下结果完全一致）。
+    `.album-detail-footer` 里的 `.producer-section` 规则**必须限定在底栏作用域内**：同一个 `.producer-section` 也用在「专辑介绍」页签里，那里要保持原来的宽松排版（24px/18px 内边距、1.9 行高，共 94px）。
+    **`.album-detail-scroll` 这个 wrapper 不能省**：`.album-detail-body` 必须仍是「被隐藏的那一块」且不含制作人员块，且 h1 选择器是 `#album-detail-content .album-detail-body > h1`（后代，不是直接子选择器——直接子选择器会连带命中隐藏的 `.music-title-probe`）。
+11. **专辑详情页的悬停蓝条画在 `.track-item` 上，不在 `.track-row` 上。** `music-playlists.css` 里 `.track-item` 是 `display:flex`（行按钮 + 右侧两个常驻小按钮），`.track-row` 只有 `flex:1 1 auto; width:0`，只占「整行减去右侧 71px」；而那条横线画在 `.track-item` 上是整宽的。所以背景若留在 `.track-row` 上，**蓝条右端会比横线短 71px**（用户报过这个现象）。现在背景在 `.track-item:hover` 上、`.track-row:hover` 和工具按钮的 hover 背景都置空（只保留颜色变化），并**限定在 `#album-detail-content` 作用域内**——歌单面板里的行保持原样。
+    注意 `.music-detail` 是 `pointer-events: none`，只有内部交互元素单独打开，所以**用 CDP 合成指针测不到行悬停**；测这个要用 `CSS.forcePseudoState` 强制 `:hover`。
+12. **行上的两种高亮（悬停浅蓝、跳转脉冲浅黄）都画在 `.track-item` 上，不画在 `.track-row` 上。** 原因同第 11 条：按钮只占整行减去右侧 71px。脉冲由 `MusicTrackFocus.reveal()` 直接 `element.animate()`，所以它作用的是 `row.parentElement`（即 `.track-item`），class 也叫作 `.track-item.search-track-highlight`。
+    **`--search-track-tint` 必须声明在 `#album-detail-content` 上，不能留在 `.track-row` 上** —— 自定义属性**只向下继承**，被染色的元素是按钮的父级，声明在按钮上会让父级解析为空：背景变透明，而且 `box-shadow: inset 3px 0 var(--accent)` 里那个失效的 `var()` 会被当成原始颜色值用。这个 bug 在改动时真实出现过，表现为「只剩一条错误颜色的竖线、没有背景」。
+13. **左边界统一用 `--page-margin`（`#stage.music-app` 上，基准 40px；≥1700 为 60、≤1100 为 25、≤700 为 22）。** 这个变量**必须声明在 `#stage.music-app` 上，不能在媒体查询里只写 `.music-app`** —— 基础声明的选择器是 `#stage.music-app`（1-1-0），只写 `.music-app`（0-1-0）**优先级不够，断点永远不生效**（实测：1920 宽时仍读到 40px）。这个坑真实踩过。
+    之前 header 用 `40/60/25/20`，而「返回专辑架」「ALBUM/093 说明」「library-status」「music-navigation」「music-bottomline」各自用 `42/62/27/22` —— **4 个断点 × 6 个元素 = 24 个数字各写各的**，导致左下方两块比左上角标题**往外凸 2px**，≥1700 时说明更是**凸 18px**。现在全部改为引用同一个变量。
+    顶层左边界的元素清单（改 `--page-margin` 会同时影响它们）：`.music-header`(left/right)、`.music-back`、`.card-caption`、`.library-status`、`.music-navigation`、`.music-bottomline`(left/right)。
+    **`viewer-*` 那一套（全屏查看器）有自己的 40/22px，故意不动**；`progress-area` 在 TS 源码里已无引用，属死代码。
+    **注意竖屏（`data-layout="portrait"`）下这些元素各有自己的值**（如 caption 32.39px），那是另一套布局，不在本变量的覆盖范围内。
+14. **专辑栏与歌词面板的右边界也读 `--page-margin`（原来是 `4.5%` / ≤1100 档 `4%`）。** 这样右边界等于「视口 − 页面边距」，与顶栏右端（`.music-header` 的 `right`）**落在同一条竖线上**，速率也从 0.955 变成 1.000，与顶栏同步。
+    **栏和面板必须一起改**：面板的 `--lyrics-right` 是栏 `right` 的镜像，只改栏会让面板比栏右出 20~30px。要改的地方一共 4 处 —— 栏的基准 + `.music-detail #album-detail-content`（≤1100 档，**注意选择器带 `.music-detail` 前缀**）+ 面板的基准 + 面板在 `@media (min-width: 1181px)` 里的那份（**它会覆盖基础值，最容易漏**）。
+    **竖屏的 `clamp(18px, 4vw, 42px)` 保留不动。**
+    实测：1600 栏 `832→1560`（= 1600−40）、1400 栏 `728→1360`（= 1400−40）、1200 栏 `624→1160`（= 1200−40），栏目与面板左右差均为 0。
+15. **右侧的基准是「滚动条」，不是栏的内容边界。** 栏的右内缩是 `calc(var(--page-margin) + var(--detail-scrollbar))`，比页面边距**多让出滚动条那 10px**。
+    原因：滚动条画在滚动区盒子的最右侧、也就是栏右边界**之外**那 10px（滚动区靠 `margin-right: calc(-1 * var(--detail-scrollbar))` 外溢）。所以**视觉上这一栏的右边缘是滚动条**。早先只把栏对齐页面边距时，栏的内容边界确实和「播放/暂停」「停止」按钮右边界重合（都是距右 40px），但滚动条落在距右 30px 处、**比按钮多出 10px** —— 用户就是看到这 10px 说「太靠右了」。现在滚动条右边界距右 40px，与停止按钮**精确对齐**（实测差 0）。
+    **`--detail-scrollbar` 必须声明在 `#stage.music-app` 上**（不能在 `.album-detail-scroll` 上）：栏和面板都要读它，而自定义属性**不向上继承**，声明在滚动区上会让栏的 `calc()` 解析失败、`right` 变成无效值。
+    面板的 `--lyrics-right` 用同一个表达式，所以歌词卡的右边界始终等于栏的内容右边界。
+16. **归档架首页（进入详情之前那一屏）的说明块与导航行也用同一个右侧基准。** 两条规则：
+    - `.music-app:not([data-layout="portrait"]) .album-callout` 的 `right` 从 `max(24px, 2.2%)` 改为 `calc(var(--page-margin) + var(--detail-scrollbar))`。
+    - `.music-navigation` 的 `right` 从 `6.2%` 改为同一个表达式，并给它里面的 `.genre-stepper` 加 `justify-self: end`（它默认在网格格里居中，右箭头落不到线上）。
+    **为什么之前找不到**：这条 callout 规则的选择器是 `.music-app:not([data-layout="portrait"]) .album-callout`，优先级高于样式表里那两条 `.album-callout`（后者写着 `left: 57%` / `right: 6.2%` / `max-width: 520px`，**但全是输的、完全不起作用**）。排查这类问题要用 CDP 的 `CSS.getMatchedStylesForNode` 直接问浏览器哪条规则赢了，不要靠遍历 `document.styleSheets` 猜。
+    实测（1600）：callout 右 1550、导航行右 1550、流派步进右 1550，全部等于 `1600 − 40 − 10`；1400/1200/1920 同样成立。
+    底部行 `.music-bottomline` 用的是 `--page-margin`（右边界比上面多 10px），那是**左对齐的文字信息行**、不是同一组，保持不动。
+17. **流派步进（`← GENRE 03 / 03 流派 →`）只改左边界、宽度保持自适应（`left: 70%; right: auto`，不写 width）。**
+    它是**整组平移**：左箭头落到「说明块左边界」上，两个箭头之间保持原本的紧凑间距（宽 224px），不是把右箭头拉到导航行右边界。
+    **为什么是 70% 这个怪数字**：它所属的定位参照（导航行的 padding box）和上面说明块的参照（视口）**不是同一个**，所以不能用同一个百分比。`70%` 是**试算出来的**（实测 1600 时左箭头 1097、说明块左 1098.13，差 1.13px；1400/1200 同样在 7px 内）。
+    **看起来对、实际错的写法**（都实测过，别再试）：
+    - 只写 `left: 68.6333%`（照抄说明块的百分比）：短掉导航行自身的内缩，1600 时短 21.77px。
+    - 百分比 `padding-left`：**这个元素上的百分比内边距按「它自己的宽度」解析**（不是包含块宽度），复利成 986px 而不是 1058px，左箭头反被推到 1326。
+    - `left` + `right`（不给 width）：**shrink-to-fit** 到内容宽 224px，拉不开；而 `left`+`right` 再加 `width: calc(100% - 70%)` 会把整组拉到 452px 宽、右箭头比原本**多出 230px**（用户明确要求不要这个）。
+    - `left` 里加 `--page-margin` / `--detail-scrollbar`：两个元素的百分比由**不同包含块**解析，没有单一表达式能在所有宽度同时对上。
+    改这个之前**先跑 `_verify/css-diff/sweep-left.mjs`**（就是为这件事写的试算器），别手工推。
+18. **歌词字号调节（面板上的 `A－` / `A＋`）**：面板通过 `--lyrics-font-scale` 这个**倍数**缩放歌词文字，`LYRIC_SIZES = [1, 1.15, 1.3, 1.45, 1.6, 1.75]`，偏好存在 `preferences.lyricsSize`（存的是**下标**，不是倍数）。
+    **必须写成 `calc(clamp(...) * var(--lyrics-font-scale, 1))` 而不是换成固定字号**：那句 `clamp` 在每个断点都不一样，换掉就把响应式丢了。最小值 `1` 就是面板一直以来的字号，也是下限（更小在 600px 栏宽、这个字重下不好看）。
+    **选择器必须是 `.music-app .lyric-line`，不能是裸的 `.lyric-line`** —— 歌词行是 `<button>`，而本项目有一条 `.music-app button { font-size: inherit }`（**两个类**），裸选择器输给它，控制就会**完全没反应**（实测：每一步都停在继承来的 16px）。这个坑真实踩过一次。
+    **两个按钮外面必须包一层 `.lyrics-band-controls`**：`.lyrics-band` 是纵向 flex，按钮若直接作为它的子元素会多出一行，**把收起卡片撑高**（那个高度是和左下角卡片说明对齐的）。
+    验证脚手架：`_verify/css-diff/lyric-size.mjs`（各步的字号/行高/按钮禁用/是否同一行）、`size-persist.mjs`（刷新后是否沿用、大字号下是否仍居中）。
+19. **歌词对齐同样是属性驱动**：面板上写 `data-lyrics-align`（`left` / `center`），样式表按属性匹配。**`left` 是原有的默认，所以它不需要任何规则**；以后要加右对齐/两端对齐，就是 `LYRIC_ALIGNS` 加一项 + 样式表加一条规则，**不用改渲染路径**。
+    - **选择器必须穿过 `.music-app`**（`.music-app .music-lyrics-panel[data-lyrics-align="center"] .lyric-line`）—— 原因同第 18 条：歌词行是 `<button>`，`.music-app button { font-size: inherit }` 有两个类。
+    - **居中时活动行的 `transform-origin` 必须改成 `center center`**：它是靠 `transform: scale()` 强调的，默认 `left center` 会让它只往右长，看起来偏右。
+    - **只作用于歌词行**，不要写「让整个面板居中」：收起卡片是靠 `.lyrics-band` 的 `text-align: right` 靠右的，面板层级的 `text-align` 会把它一起改掉。
+    - 按钮显示的是**将要切换到的**模式字形（`≡` 左对齐 / `☰` 居中），不是当前模式。
+    验证脚手架：`_verify/css-diff/lyric-align.mjs`（模式切换、实际居中量测、收起态是否受影响、刷新后是否沿用）。
 
 ### 版本与提交
 
-- 分支 `rhine-lab`，最新提交 `0cf34e1`（歌词面板完工 + 移除诊断脚手架）
-- 版本号 `0.7.0-dev.2`（**未递增**，因为整个过程属于同一个未发布功能；CHANGELOG 里记录了各轮修复与真因）
-- **未推送任何东西到 GitHub**（用户要求）
-- 临时诊断代码**已全部移除**（`/api/diagnostics/lyrics` 路由、`reportLyricDiagnostics`、`lyricDiagnostics`、scroll 上报）
+- 分支 `rhine-lab`（**自有功能线**）。`main` 上只有封面串台修复（`0.6.0-dev.58`），按第 2、3 节的规则两条线分开处理，互不牵连。
+- 版本号 **`0.7.0-dev.3`**，由 `node scripts/version.mjs --allocate-dev` 分配，自动同步到 7 处（`version.json`、`package.json`、`package-lock.json`、`README.md`、`src/build-version.ts`、`app.manifest`、`DesktopProgram.cs`）。**不要手改版本号。**
+  - 该命令会在 `CHANGELOG.md` 末尾插入一条占位条目，**必须手动补全内容**（本次已补）。README 会引用 `RELEASE_NOTES_<版本>.md`，**该文件要自己写**（本次已写）。
+- `CHANGELOG.md` 与 `RELEASE_NOTES_0.7.0-dev.3.md` 已按第 5 节的规范写好。CHANGELOG 条目从旧到新排在**文件末尾**（注意顺序，不要插到开头）。
+- **未推送任何东西到 GitHub**（用户要求）。
+- `scripts/check-music-scene.mjs` 里有 4 条断言原本要求"面板必须不透明/有投影/有毛玻璃"，**已改写成对新设计的断言**（不得有背景/投影/毛玻璃、必须保留透明占位边框、歌词列表不得预留滚动条槽、隐藏范围只针对被覆盖那一块且用 `visibility`）。别改回去。
 
 ### 恢复验证环境
 
 1. 代理必须开着：`127.0.0.1:10810`（Whale）。**代理关闭时任何 GitHub 结论都不可信**（曾因此误判仓库被删除）。
-2. 构建并启动本地服务：
+2. 构建并启动本地服务（**注意：8099 上通常已经有一个在跑的服务，它用的是用户真实曲库 `D:\Music\林子汐的车载电台`，不是 `_verify` 副本；别再起第二个**）：
    ```powershell
    npm run build
-   $env:MUSIC_DATA_DIR = 'B:\RHINE LAB_DEV\_verify\music-data'
-   $env:PORT = '8099'
-   node scripts/music-server.mjs
+   node scripts/music-server.mjs     # 服务每次请求现读 dist，改完只需 build + 浏览器 Ctrl+Shift+R
    ```
-3. 测试歌曲：**`林子汐 - NUNA3.0`**（用户曲库里**唯一**有 `.lrc` 的一首，49 行）。
-   验证目录 `B:\RHINE LAB_DEV\_verify\music-data` 已存在，是用户真实索引的副本。
+3. 测试歌曲：**`林子汐 - NUNA3.0`**（track id `track-3885ff186af821e6c45ba7d8`，专辑 `NUNA3.0`，49 行歌词）。
+4. **验证脚手架在仓库外**：`B:\RHINE LAB_DEV\_verify\css-diff\`（CDP 驱动 Edge headless 的量测脚本）。仓库里不留任何临时文件。
+   **每次改完先跑 `boot-diag.mjs`** —— 它监控未捕获异常/boot 状态。本轮曾因一个 `let` 声明在函数之后（TDZ）导致整个应用启动中断、卡在"正在载入三维专辑架"，而当时所有"只看几个盒子"的脚本全部漏过。
 
 ### 工作方式（用户明确要求过）
 
 - **基于源码，不基于截图。** 截图只用来确认"看到了什么现象"；参数、位置、对齐一律去源码查，或让页面实测上报。
-- **用户只付得起有限的 token**，所以：回复要短、动代码前把相关源码规则一次读完、配对关系（如"展开=列顶+30、收起=0"）先想清楚再写。
-- 用户是产品角色，不懂代码。方案要讲清取舍，设计选择由他定。
+- **用户只付得起有限的 token**，所以：回复要短、动代码前把相关源码规则一次读完、配对关系先想清楚再写。
+- 用户是产品角色，不懂代码。方案要讲清取舍，**设计选择由他定**。
+- **不要自作主张。** 用户说"把线往下移"，就只动那条线；把排版一起改了会被明确批评（本轮发生过）。改动前如果可能影响别的元素，先用 CDP 做对照实验证明"只有目标元素动了"。
 
 ### 下一步
 
-用户要**优化显示效果**。尚未讨论具体内容。可能的方向（等他提）：
-字号/行距、非当前行的透明度衰减、边缘渐隐强度、滚动缓动曲线、配色。
+用户说"还有东西要加"，**尚未说明内容**，等他提。已知他关注的方向：显示效果、录屏观感。
 
 **之前约定留到后续的**：专辑信息自动收纳、背景虚化、逐字（卡拉OK）歌词。

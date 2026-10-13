@@ -22,6 +22,24 @@
   /* Declared on the stage, not on .music-detail: the lyrics panel is a sibling
      of that section, and a custom property cannot inherit across siblings. */
   --detail-content-top: 170px;
+  /* The page margin, on both edges. It was previously written out per element —
+     the header used 40/60/25/20 while the back link and the cover caption used
+     42/62/27/22, so the two left-hand items sat 2px further out than the brand,
+     and at 1700 and wider the caption was 18px further out still. One variable
+     keeps every left-hand element on the same line as the brand. */
+  --page-margin: 40px;
+  /* The width of the track list's scrollbar. Declared on the stage so the album
+     column and the lyrics panel can inset their right edge by it: the scrollbar
+     is drawn in the 10px beyond the scroller, and it is what reads as the
+     right-hand edge of that column, so it — not the column's own edge — is what
+     lines up with the transport buttons. */
+  --detail-scrollbar: 10px;
+  /* Where the archive text block's left edge falls, as a viewport-anchored length.
+     The block is positioned against the page (`68.633333%` of the viewport); the
+     navigation row is inset by the page margin, so a percentage against the row
+     lands elsewhere. Deriving one length and using it for both keeps them on the
+     same line. */
+  --callout-left: 68.633333%;
 }
 .music-app[data-theme="night"] {
   --ink: #e9eef2;
@@ -115,8 +133,8 @@
 .music-header {
   position: absolute;
   z-index: 6;
-  left: 40px;
-  right: 40px;
+  left: var(--page-margin);
+  right: var(--page-margin);
   top: 33px;
   display: flex;
   justify-content: space-between;
@@ -217,7 +235,7 @@
 }
 .library-status {
   position: absolute;
-  left: 42px;
+  left: var(--page-margin);
   top: 112px;
   z-index: 3;
   display: flex;
@@ -315,13 +333,38 @@
 .music-navigation {
   position: absolute;
   bottom: 60px;
-  left: 42px;
-  right: 6.2%;
+  left: var(--page-margin);
+  /* The same right inset as the album column and the archive callout, so the
+     genre stepper's right arrow ends on the line the detail page's content and
+     the transport buttons use. It was `6.2%`, which left this row ~59px short. */
+  right: calc(var(--page-margin) + var(--detail-scrollbar));
   display: grid;
   grid-template-columns: 210px 1fr 1.1fr;
   align-items: center;
   z-index: 4;
   gap: 40px;
+}
+/* The genre stepper is centred inside its grid cell by default; end-aligning it
+   puts its arrow on the row's right edge, which is the line above. */
+.music-navigation > .genre-stepper {
+  justify-self: end;
+}
+/* Landscape: move the genre stepper's group left so its left arrow sits on the
+   archive text block's left edge, while keeping its own compact width — the two
+   arrows stay the distance apart they always were, the pair simply shifts.
+   `left: 70%` is a percentage of THIS element's containing block (the navigation
+   row), not of the page the text block is measured against, so it is not the
+   block's `68.633333%`: found by sweeping candidates against measurement
+   (sweep-left.mjs / sweep-lw.mjs in the verification directory). Measured at 1600
+   wide it lands the left arrow at 1097 against the block's 1098.13.
+   The width is deliberately intrinsic (`right: auto`, no width). An earlier pass
+   stretched it to the row's right edge with `space-between`, which put the left
+   arrow on the line but also threw the right arrow 230px further right than the
+   group has ever been. */
+.music-app:not([data-layout="portrait"]) .music-navigation > .genre-stepper {
+  position: absolute;
+  left: 70%;
+  right: auto;
 }
 .music-counter > div {
   display: flex;
@@ -451,8 +494,8 @@
 .music-bottomline {
   position: absolute;
   bottom: 13px;
-  left: 42px;
-  right: 42px;
+  left: var(--page-margin);
+  right: var(--page-margin);
   display: flex;
   justify-content: space-between;
   z-index: 3;
@@ -473,7 +516,7 @@
 }
 .music-back {
   position: absolute;
-  left: 42px;
+  left: var(--page-margin);
   top: 112px;
   font-size: 10px;
   pointer-events: auto;
@@ -490,7 +533,7 @@
 }
 .card-caption {
   position: absolute;
-  left: 42px;
+  left: var(--page-margin);
   bottom: 82px;
   display: flex;
   flex-direction: column;
@@ -513,19 +556,113 @@
   padding-bottom: 6px;
   width: max-content;
 }
+/* The column is a flex column of three bands: the overline, one scrolling
+   region, and the credits footer. The column itself no longer scrolls, so the
+   footer can be pinned to its bottom edge instead of trailing the track list,
+   which is what puts the credits on the same bottom line as the cover caption in
+   the opposite corner.
+   `overflow: visible`, not `hidden`: the scrolling region deliberately overhangs
+   the column's right edge by the scrollbar's width so the scrollbar can sit
+   outside the lyrics card (see .album-detail-scroll), and `hidden` clipped that
+   overhang away entirely — the scrollbar was not merely overlapped, it was gone. */
 #album-detail-content {
   position: absolute;
   left: 58%;
-  right: 4.5%;
+  right: calc(var(--page-margin) + var(--detail-scrollbar));
   top: var(--detail-content-top);
   bottom: 52px;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  pointer-events: auto;
+  outline: none;
+  overscroll-behavior: contain;
+}
+/* Everything the lyrics panel covers. It is the only part that scrolls, and it
+   carries the scrollbar the column used to own.
+   The scrollbar is spent OUTSIDE the text, not inside it. A scrollbar takes its
+   width out of the content box, so with the scroller ending on the column's right
+   edge the album text sat 19px short of the edge the lyrics card shares — the text
+   pulled in by the scrollbar and its 9px gutter, while the card stayed put. The
+   scroller now grows by that same 19px (the negative right margin) and drops the
+   gutter, which puts the text back on the card's right edge and leaves the
+   scrollbar past it. The column and the album switcher above the panel are not
+   touched: they have only 1px of clearance from the panel as it is. */
+.album-detail-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
-  pointer-events: auto;
-  padding-right: 9px;
-  outline: none;
   overscroll-behavior: contain;
+  /* `--detail-scrollbar` is declared on #stage.music-app, not here: the column
+     and the lyrics panel read it too (to inset the right edge by the scrollbar's
+     width), and a custom property does not inherit upwards. */
+  /* End the scroller on the column's right edge, then let it grow by the gutter
+     it used to leave empty. The scrollbar then lands between the text and that
+     edge instead of pushing the text inwards. Growing by the gutter alone is
+     deliberate: growing by the scrollbar too pushed the text PAST the card's edge
+     (measured: column right 1528, text right 1547).
+     `scrollbar-gutter: stable` is what makes this deterministic. Without it the
+     browser removes the scrollbar's width from the content box only while the
+     list actually overflows, so the album text alternated between two widths
+     depending on how many tracks the album had — and on a platform whose
+     scrollbar overlays instead of reserving space, the text would run past the
+     card edge by the scrollbar's width instead. Reserving the gutter always
+     keeps the content box the same size whether or not it overflows. */
+  scrollbar-gutter: stable;
+  margin-right: calc(-1 * var(--detail-scrollbar));
+  padding-right: 0;
+  /* The scroller's own box must stop where the credits begin. It is a flex item
+     filling the column, so its box ran the full height of the column — past the
+     absolutely positioned footer — and every row that scrolled into that band
+     was painted behind the credits and showed through them (measured: one to two
+     rows, up to a full row's height, at any scroll position). Padding does not
+     fix this: padding does not shrink a box, the overlap stays. A bottom margin
+     of the footer's height plus its overhang does. */
+  margin-bottom: calc(var(--credits-h) + var(--credits-bottom));
+}
+/* Credits, pinned to the column's bottom, and sized to the same band as the
+   cover caption in the opposite corner so the two read as one row across the
+   page. Both numbers are derived from one variable pair:
+     --credits-h       the block's height, matching the caption's
+     --credits-gap     the gap between its two lines, matching the caption's
+   The height is the caption's label line plus that gap, or the caption's label
+   plus gap plus hint when the second line is the taller of the two. */
+#album-detail-content {
+  --credits-h: 38px;
+  --credits-gap: 10px;
+  /* Carried by the same breakpoints that move the caption. */
+  --credits-bottom: 30px;
+}
+/* Pinned by absolute position rather than as a flex item: a flex item cannot be
+   pushed past its container's content edge, so the credits stopped short of the
+   caption's line. The variable is the caption's own bottom inset (82px) less the
+   column's (52px), so the footer's bottom lands exactly on the caption's. */
+#album-detail-content > .album-detail-footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--credits-bottom);
+  height: var(--credits-h);
+}
+/* Scoped to the footer deliberately: the same .producer-section is also rendered
+   inside the "专辑介绍" tab, where it keeps its roomier treatment. */
+#album-detail-content > .album-detail-footer .producer-section {
+  height: var(--credits-h);
+  padding: 0;
+  margin-top: 0;
+  /* Its 1px top rule would make the block 1px taller than the caption's. */
+  border-top: 0;
+}
+/* The label line: the height minus the gap and the 12px hint line. */
+#album-detail-content > .album-detail-footer .producer-section > div {
+  height: calc(var(--credits-h) - var(--credits-gap) - 12px);
+}
+/* The hint line and the gap between it and the label, both as the caption's. */
+#album-detail-content > .album-detail-footer .producer-section p {
+  margin: var(--credits-gap) 0 0;
+  line-height: 12px;
 }
 .detail-overline {
   display: flex;
@@ -566,7 +703,10 @@
 .music-app[data-layout="compact"] #album-detail-content {
   left: 52%;
 }
-#album-detail-content > h1 {
+/* The album title lives in .album-detail-body. Scoped to that wrapper on
+   purpose: a plain `#album-detail-content h1` would also match the hidden
+   .music-title-probe h1 and override its `--album-title-size: initial`. */
+#album-detail-content .album-detail-body > h1 {
   font-size: clamp(25px, 2.5vw, 39px);
   line-height: 1.22;
   font-weight: 600;
@@ -719,10 +859,18 @@
 .track-row.playing {
   color: var(--accent);
 }
-.track-row {
+/* The reveal pulse paints the whole row line, not the play button: the button is
+   a flex item beside the two always-visible tool buttons, so a tint or a left
+   stripe on it stopped short of the rule running under the row (measured: 606px
+   against the row's 677px). MusicTrackFocus animates this element.
+   The tint is declared on the column, NOT on .track-row: custom properties
+   inherit downwards only, and the element being painted is the row's parent, so
+   a declaration on the button left this unresolved (it resolved to transparent,
+   and the var() inside the stripe's colour fell back to the raw accent). */
+#album-detail-content {
   --search-track-tint: color-mix(in srgb, var(--accent) 20%, transparent);
 }
-.track-row.search-track-highlight {
+.track-item.search-track-highlight {
   background: var(--search-track-tint);
   box-shadow: inset 3px 0 var(--accent);
 }
@@ -1260,9 +1408,12 @@
   }
 }
 @media (min-width: 1700px) {
+  #stage.music-app {
+  --page-margin: 60px;
+  }
   .music-header {
-    left: 60px;
-    right: 60px;
+    left: var(--page-margin);
+    right: var(--page-margin);
     top: 48px;
   }
   .music-brand strong {
@@ -1279,7 +1430,7 @@
   }
   .library-status {
     top: 144px;
-    left: 62px;
+    left: var(--page-margin);
   }
   .album-callout {
     top: 35%;
@@ -1300,7 +1451,7 @@
     font-size: 15px;
   }
   .music-navigation {
-    left: 62px;
+    left: var(--page-margin);
     bottom: 90px;
   }
   .music-keyhint {
@@ -1317,10 +1468,11 @@
   }
   .music-detail #album-detail-content {
     bottom: 75px;
+    --credits-bottom: 7px;
   }
   .music-back {
     top: 144px;
-    left: 62px;
+    left: var(--page-margin);
     font-size: 12px;
   }
   .album-facts small {
@@ -1356,9 +1508,12 @@
   }
 }
 @media (max-width: 1100px) {
+  #stage.music-app {
+  --page-margin: 25px;
+  }
   .music-header {
-    left: 25px;
-    right: 25px;
+    left: var(--page-margin);
+    right: var(--page-margin);
     top: 26px;
   }
   .music-brand strong {
@@ -1381,7 +1536,7 @@
     display: none;
   }
   .library-status {
-    left: 27px;
+    left: var(--page-margin);
     top: 91px;
     font-size: 9px;
   }
@@ -1397,7 +1552,7 @@
     font-size: 13px;
   }
   .music-navigation {
-    left: 27px;
+    left: var(--page-margin);
     gap: 20px;
     grid-template-columns: 145px 1fr 1fr;
     bottom: 57px;
@@ -1413,8 +1568,8 @@
     bottom: 33px;
   }
   .music-bottomline {
-    left: 27px;
-    right: 27px;
+    left: var(--page-margin);
+    right: var(--page-margin);
     font-size: 7px;
   }
   .music-player {
@@ -1448,19 +1603,23 @@
   }
   .music-back {
     top: 91px;
-    left: 27px;
+    left: var(--page-margin);
   }
   .card-caption {
-    left: 27px;
+    left: var(--page-margin);
   }
   .music-app,
   .music-detail {
     --detail-content-top: 132px;
   }
   .music-detail #album-detail-content {
-    right: 4%;
+    right: calc(var(--page-margin) + var(--detail-scrollbar));
     left: 56%;
     bottom: 40px;
+    --credits-bottom: 42px;
+    /* At this width the caption drops its hint line to 8px, so the caption is
+       36px tall — the credits follow it, and both stay on one line. */
+    --credits-h: 36px;
   }
   .album-facts {
     gap: 12px 14px;
@@ -1492,9 +1651,12 @@
   }
 }
 @media (max-width: 700px) {
+  #stage.music-app {
+  --page-margin: 22px;
+  }
   .music-header {
-    left: 20px;
-    right: 20px;
+    left: var(--page-margin);
+    right: var(--page-margin);
     top: 23px;
   }
   .music-brand strong {
@@ -1517,7 +1679,7 @@
     display: inline !important;
   }
   .library-status {
-    left: 22px;
+    left: var(--page-margin);
     top: 87px;
     font-size: 8px;
     max-width: 85%;
@@ -1665,12 +1827,12 @@
   }
   .music-back {
     top: 87px;
-    left: 22px;
+    left: var(--page-margin);
     font-size: 9px;
     gap: 16px;
   }
   .card-caption {
-    left: 22px;
+    left: var(--page-margin);
     gap: 5px;
   }
   .card-caption > span {
@@ -1687,7 +1849,7 @@
     margin-bottom: 12px;
     font-size: 7px;
   }
-  #album-detail-content > h1 {
+  #album-detail-content .album-detail-body > h1 {
     font-size: 25px;
   }
   .detail-artist {
@@ -2132,7 +2294,7 @@
 .album-callout .open-album {
   margin-top: 22px;
 }
-#album-detail-content > h1 {
+#album-detail-content .album-detail-body > h1 {
   font-size: clamp(24px, 2.45vw, 39px);
 }
 #album-detail-content .music-title-translation {
@@ -2253,21 +2415,24 @@
   box-sizing: border-box;
   width: var(--lyrics-width);
   max-width: var(--lyrics-max-width);
-  padding: var(--lyrics-padding);
-  background: rgb(247 246 241 / 0.9);
-  /* Card treatment is on the base rule so the expanded and collapsed states
-     look like the same object; only the height changes between them. */
-  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
-  border-radius: 3px;
-  box-shadow: 0 10px 34px rgb(0 0 0 / 0.07);
-  backdrop-filter: blur(12px);
+  /* Horizontal insets come from the album column, measured at runtime and set
+     as --lyrics-left-pad / --lyrics-right-pad, so the lyrics land on the same
+     two vertical lines as the album title and its credits rule. The column's
+     right inset changes with its scrollbar, which is why this is measured
+     instead of written down here. */
+  padding: var(--lyrics-padding, 16px 0 18px);
+  padding-left: var(--lyrics-left-pad, 0px);
+  padding-right: var(--lyrics-right-pad, 0px);
+  /* No paint of its own: no background, shadow or backdrop blur, so the album
+     column this panel stands in for (#album-detail-content) and the panel both
+     read as content on the page rather than as a card. Text sits straight on
+     the page colour.
+     The border stays, but transparent, purely as a spacer. `box-sizing:
+     border-box` spends the border inside the box, so dropping it moved every
+     inner box 1px left and up and widened the rows by 2px (measured in a real
+     browser). An invisible border keeps the inner geometry identical. */
+  border: 1px solid transparent;
   text-align: left;
-}
-.music-app[data-theme="dusk"] .music-lyrics-panel {
-  background: rgb(238 234 226 / 0.9);
-}
-.music-app[data-theme="night"] .music-lyrics-panel {
-  background: rgb(18 22 27 / 0.9);
 }
 .music-lyrics-panel[hidden] {
   display: none !important;
@@ -2279,11 +2444,30 @@
   /* The collapsed card is already aligned to the measured album title, because
      its top is the panel top plus this offset — so the offset stays 0. */
   top: calc(var(--lyrics-top) + var(--lyrics-collapsed-offset, 0px));
-  padding: 14px 18px 16px;
+  /* Same horizontal insets as the expanded panel, so the toggle lands on the
+     same two vertical lines in both states — only the height changes between
+     them. They are the album column's measured insets (see
+     --lyrics-left-pad / --lyrics-right-pad), not a number of their own.
+     The top value is declared as a variable too, because the alignment maths
+     needs it to place the card without reading the live padding (which differs
+     between states). */
+  --lyrics-collapsed-pad-top: 14px;
+  padding: var(--lyrics-collapsed-pad-top) var(--lyrics-right-pad, 0px) 16px var(--lyrics-left-pad, 0px);
 }
 .music-app[data-lyrics-collapsed="true"] .lyrics-band {
   padding-bottom: 0;
   border-bottom: 0;
+  /* Collapsed, the whole card moves to the right edge as one block: the toggle     plus the status line and the live lyric line under it. Left, that stack sat
+     over the album text showing through beneath the card; right, the card keeps
+     clear of it. The expanded panel keeps its left alignment, where the lyrics
+     line up with the album column they replace. */
+  align-items: flex-end;
+  text-align: right;
+}
+/* The compact card holds only the toggle, the status and the live line, so the
+   song block stands down with it. */
+.music-app[data-lyrics-collapsed="true"] .lyrics-song-info {
+  display: none;
 }
 /* The album column is NOT hidden while the lyrics show. Hiding it also removed
    the cover caption and the credits block, which sit outside the panel's box.
@@ -2293,23 +2477,67 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-bottom: 10px;
+  /* Lower the rule at the band's foot without changing the layout: the song
+     title and artist are stacked in the band's first row, and the rule used to
+     cut through the artist. `padding-bottom` pushes the rule down by N, and the
+     matching negative `margin-bottom` removes N from the box height, so
+     everything below the band stays exactly where it was. Only the border moves.
+     Derived from the band's own padding so the two stay in step. */
+  --lyrics-rule-drop: 14px;
+  padding-bottom: calc(10px + var(--lyrics-rule-drop));
+  margin-bottom: calc(-1 * var(--lyrics-rule-drop));
   border-bottom: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+  /* Anchor for .lyrics-song-info, which is placed against the first row (the
+     toggle's row) rather than taking a row of its own. */
+  position: relative;
+}
+/* The song playing, in the space the toggle gave up when it moved to the right
+   edge. It is taken out of flow and pinned to the top-left of the band, so it
+   shares the toggle's row without joining the flex order — the collapsed card
+   can then simply hide it and keep its right-aligned stack unchanged. */
+.lyrics-song-info {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: calc(100% - 200px);
+  pointer-events: none;
+}
+.lyrics-song-info[hidden] {
+  display: none !important;
+}
+.lyrics-song-info strong {
+  color: var(--ink);
+  font-size: clamp(15px, 1.05vw, 20px);
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.lyrics-song-info span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 /* Mirror #album-detail-content's box exactly, so the panel replaces the column
    rather than floating over a differently sized area. */
 .music-lyrics-panel {
   --lyrics-top: var(--detail-content-top, 170px);
   --lyrics-left: 58%;
-  --lyrics-right: 4.5%;
+  --lyrics-right: calc(var(--page-margin) + var(--detail-scrollbar));
   --lyrics-bottom: 52px;
   --lyrics-width: auto;
   /* No cap: the left/right insets above already match the album column's, so
      the panel spans exactly the column it stands in for. */
   --lyrics-max-width: none;
-  /* Inset the lyrics from the card edge; the card itself stays flush with the
-     album column so the two boxes match. */
-  --lyrics-padding: 16px 18px 18px;
+  /* Vertical padding only; the horizontal insets are measured from the album
+     column at runtime (see --lyrics-left-pad / --lyrics-right-pad above). The
+     top value is also read by syncLyricsPanelAlignment() to place the collapsed
+     card, so it lives in one place. */
+  --lyrics-padding: 16px 0 18px;
+  --lyrics-top-inset: 16px;
 }
 .music-app[data-layout="desktop"] .music-lyrics-panel,
 .music-app[data-layout="compact"] .music-lyrics-panel {
@@ -2319,8 +2547,8 @@
   .music-app[data-layout="desktop"] .music-lyrics-panel,
   .music-app[data-layout="compact"] .music-lyrics-panel {
     --lyrics-top: var(--detail-content-top, 170px);
-    --lyrics-right: 4.5%;
-    --lyrics-padding: 16px clamp(18px, 1.6vw, 30px) 18px;
+    --lyrics-right: calc(var(--page-margin) + var(--detail-scrollbar));
+    --lyrics-padding: 16px 0 18px;
   }
 }
 @media (max-width: 1180px) {
@@ -2329,22 +2557,27 @@
        left 56% / right 4%, so the panel must not keep the wider base insets. */
     --lyrics-top: var(--detail-content-top, 170px);
     --lyrics-left: 56%;
-    --lyrics-right: 4%;
+    --lyrics-right: calc(var(--page-margin) + var(--detail-scrollbar));
     --lyrics-bottom: 40px;
-    --lyrics-padding: 14px 14px 14px;
+    --lyrics-padding: 14px 0;
   }
 }
 /* Portrait has no right-hand column: the album text spans nearly the full width
-   under the cover, so the lyrics panel takes the same box. */
+   under the cover, so the lyrics panel takes the same box. Its 5px
+   padding-right is picked up by the measured horizontal insets. */
 .music-app[data-layout="portrait"] .music-lyrics-panel {
   --lyrics-top: 50%;
   --lyrics-left: clamp(22px, 4vw, 42px);
   --lyrics-right: clamp(18px, 4vw, 42px);
   --lyrics-bottom: 28px;
-  --lyrics-padding: 14px 19px 14px 14px;
+  --lyrics-padding: 14px 0;
 }
 .lyrics-toggle {
-  align-self: flex-start;
+  /* Sits on the right edge of the band. Collapsed, the card is a narrow strip
+     over the album column, and the cover caption / album text underneath is on
+     the left — parking the control on the left put it on top of that text. It
+     keeps its own row either way, so it never sits beside the live line. */
+  align-self: flex-end;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2357,6 +2590,59 @@
 }
 .lyrics-toggle:hover,
 .lyrics-toggle:focus-visible {
+  color: var(--accent);
+}
+/* The toggle and the lyric-size buttons share one row. They are siblings inside
+   this wrapper rather than siblings of each other inside the band, because the
+   band stacks its children in a column: as separate children the two size buttons
+   would add a row and the collapsed card would grow, losing the height it shares
+   with the cover caption in the opposite corner. */
+.lyrics-band-controls {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.lyrics-size {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lyrics-size button {
+  padding: 2px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  transition: color 140ms ease;
+}
+.lyrics-size button:hover:not(:disabled),
+.lyrics-size button:focus-visible:not(:disabled) {
+  color: var(--accent);
+}
+/* At the ends of the range the control says so rather than silently doing
+   nothing. The smallest step is the size the panel shipped with. */
+.lyrics-size button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* Same treatment as the size buttons, so the control row reads as one group. The
+   glyph shows the mode the button will switch TO. */
+.lyrics-align {
+  display: flex;
+  align-items: center;
+}
+.lyrics-align button {
+  padding: 2px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  transition: color 140ms ease;
+}
+.lyrics-align button:hover,
+.lyrics-align button:focus-visible {
   color: var(--accent);
 }
 .lyrics-toggle-glyph {
@@ -2379,7 +2665,9 @@
 .lyrics-panel-current {
   margin: 0;
   color: var(--ink);
-  font-size: clamp(15px, 1.05vw, 21px);
+  /* Scaled with the lyric list, so the collapsed card's live line stays the same
+     size as the expanded lines it replaces. */
+  font-size: calc(clamp(15px, 1.05vw, 21px) * var(--lyrics-font-scale, 1));
   font-weight: 600;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -2393,6 +2681,10 @@
   min-height: 0;
   margin-top: 16px;
   flex: 1 1 auto;
+  /* Clips the list to the panel's own box. The list is pinned to these edges, so
+     nothing should spill, but the panel is transparent now — anything that did
+     would paint over the album text showing through. */
+  overflow: hidden;
   /* Fade the incoming and outgoing lines so the panel edge never looks cut. */
   mask-image: linear-gradient(
     to bottom,
@@ -2406,28 +2698,67 @@
   display: none !important;
 }
 .lyric-list {
-  height: 100%;
+  /* Pinned to its container rather than `height: 100%`. A percentage height is
+     still overridden by content: with the head/tail room below, the list's
+     content box grew past the panel and the list ended up taller than the box
+     that holds it — so its own centre, which the follow animation centres the
+     active line on, sat below the panel's centre. Pinning all four edges makes
+     the list exactly the container's size, so its centre is the centre the
+     viewer sees.
+     The head/tail room is in viewport units, NOT a percentage: against an
+     absolutely positioned box a percentage padding resolves from the containing
+     block's width and then adds to the pinned height (measured: a 30% padding
+     pushed the list to 405px against a 299px container), which put the centre
+     out again.
+     The value is squeezed from both sides, measured on the real panel:
+       - every line must be able to reach the middle, which needs the padding to
+         be at least (body height - line height) / 2 — the body is about 0.48vh
+         tall, so that floor is roughly 13.5vh;
+       - the two paddings together must fit the body (about 0.48vh), so the
+         ceiling is roughly 24vh.
+     17vh sits between them at every window height tested (600-1080px). */
+  position: absolute;
+  inset: 0;
   margin: 0;
-  /* Fixed head and tail room, in viewport terms rather than a measured
-     percentage: it gives the browser somewhere to centre the first and last
-     lines, and it does not collapse when the panel is measured mid-layout. */
-  padding-block: clamp(140px, 30vh, 340px);
+  padding-block: max(140px, 17vh);
   overflow: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
+  /* No scrollbar track. `thin` still reserves its width even when only a few
+     lines are loaded, and that reservation came out of the rows' width, so the
+     lyrics ended 10px short of the album text's right edge. Scrolling is still
+     available (wheel, drag, keyboard, and the follow animation), it just draws
+     no track — the panel is a lyric display, not a scroll region the viewer is
+     meant to aim at. */
+  scrollbar-width: none;
   /* No CSS smooth scrolling: the follow animation sets scrollTop every frame,
      and smooth behaviour would animate each of those writes in turn. */
 }
-.lyric-line {
+/* WebKit-based engines ignore scrollbar-width and need this instead. */
+.lyric-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+/* Scoped to the app on purpose. A lyric line is a `<button>`, and the app's own
+   `.music-app button { font-size: inherit }` carries two classes, so a bare
+   `.lyric-line` rule loses to it and the size control silently did nothing
+   (measured: the line stayed at the inherited 16px at every step). */
+.music-app .lyric-line {
   display: block;
   width: 100%;
-  padding: 10px 12px;
+  /* No horizontal inset of its own, so the lyrics occupy exactly the album
+     column's content box — same left and right edges as the album title and the
+     credits rule, which is what the viewer compares them against. */
+  padding: 10px 0;
   margin: 0;
   border: 0;
   background: none;
   color: var(--muted);
   font-family: inherit;
-  font-size: clamp(15px, 1.05vw, 20px);
+  /* Multiplied by --lyrics-font-scale, which the size controls set. Multiplying
+     rather than replacing is deliberate: this clamp is different at every
+     breakpoint, so a fixed size would throw that responsiveness away. The floor
+     (scale 1) is the size the panel has always used. */
+  font-size: calc(clamp(15px, 1.05vw, 20px) * var(--lyrics-font-scale, 1));
   line-height: 1.5;
   text-align: left;
   text-wrap: pretty;
@@ -2457,6 +2788,23 @@
   text-align: center;
   padding: 8px 12px;
 }
+/* Lyric alignment. The panel carries `data-lyrics-align` (written by
+   applyLyricAlign in music-app.ts) and the stylesheet matches on it, so a third
+   mode would be one more rule here rather than another branch in the render path.
+   `left` is the layout the panel has always had, so it needs no rule of its own.
+   Scoped through `.music-app` because a lyric line is a `<button>` and the app's
+   own `.music-app button { font-size: inherit }` carries two classes — the same
+   reason the size control needs the extra class.
+   The collapsed card is untouched: it is right-aligned by its band and has no
+   lyric list to align. */
+.music-app .music-lyrics-panel[data-lyrics-align="center"] .lyric-line {
+  text-align: center;
+}
+.music-app .music-lyrics-panel[data-lyrics-align="center"] .lyric-line.active {
+  /* The active line is emphasised by a transform; left-anchored origin would make
+     it grow to the right, which reads as off-centre. */
+  transform-origin: center center;
+}
 /* Compact windows have no room for a right column, so the panel parks itself
    along the bottom edge as a horizontally scrolling band. */
 @media (max-width: 780px) {
@@ -2475,7 +2823,7 @@
     max-height: 34vh;
   }
   .lyric-line {
-    padding: 7px 6px;
+    padding: 7px 0;
     font-size: 14px;
   }
 }
@@ -2501,10 +2849,33 @@
 .music-topnav .minimal-transport button.transport-lyrics-open:focus-visible {
   color: var(--accent);
 }
-/* Lyrics no longer reserve the bottom of the album column; the panel overlays
-   it and the viewer collapses the panel when they want the album back. */
-.music-app[data-lyrics-visible="true"][data-mode="detail"] #album-detail-content {
-  padding-right: 0;
+/* The album column keeps its own padding while the lyrics show. An earlier rule
+   zeroed its padding-right here to "make room" for the panel, but the panel no
+   longer needs room: it is transparent text and the album block underneath is
+   hidden. Zeroing it instead widened the column's content box by 9px, so every
+   line still on screen slid 9px to the right and the credits rule grew 9px wider
+   (measured: title, facts, tabs and the producer rule all +9px wide, the
+   "补充在线资料" button +9px right). Leaving the padding alone keeps the whole
+   detail page measuring exactly as it does without lyrics. */
+/* While the expanded lyrics panel stands in for the album column, hide exactly
+   the block the panel covers. The panel's box mirrors the column's (both start
+   at the album title and stop at the last track row), so hiding the wrapper
+   removes precisely the text under the card and nothing else: the overline and
+   its album switcher stay above the panel's top edge, and the cover caption and
+   the credits on the left are separate elements the panel never reaches.
+   Only the expanded state hides it — collapsing gives the album back.
+
+   `display: none` is deliberately NOT used. Any change that removes the
+   wrapper's box from the flow lets the producer credits that follow it collapse
+   upward under the panel — measured in a real browser at y 589.6 -> 218 for
+   `height: 0` and y 589.6 -> 200 for `display: none`, with the panel spanning
+   200-572, so the credits ended up 352px inside it and their text vanished.
+   `visibility: hidden` alone keeps the wrapper's box exactly where it is, and
+   measured 0.0px of movement for the credits; everything outside the block stays
+   put, down to the column's scroll height. */
+.music-app[data-mode="detail"][data-lyrics-visible="true"][data-lyrics-playing="true"]
+  #album-detail-content .album-detail-body {
+  visibility: hidden;
 }
 @media (max-width: 700px) {
   .music-topnav .transport-lyric-status {
@@ -2596,10 +2967,15 @@
   color: var(--muted);
 }
 
-/* Reserve about 7/24 of the landscape view for the selected album's text. */
+/* Reserve about 7/24 of the landscape view for the selected album's text.
+   The right inset is the same one the album column uses — the page margin plus
+   the scrollbar's width — so the archive page's text block ends on the same line
+   as the detail page's content and the transport buttons. It was
+   `max(24px, 2.2%)`, a percentage of the window, which put this edge ~15px
+   further right than the column it lines up with. */
 .music-app:not([data-layout="portrait"]) .album-callout {
   left: 68.633333%;
-  right: max(24px, 2.2%);
+  right: calc(var(--page-margin) + var(--detail-scrollbar));
   max-width: none;
 }
 
