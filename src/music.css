@@ -34,6 +34,12 @@
      right-hand edge of that column, so it — not the column's own edge — is what
      lines up with the transport buttons. */
   --detail-scrollbar: 10px;
+  /* The row-band the track list keeps free at its foot, so the list and the
+     expanded lyrics card can end on the same line whatever the track count. The
+     value is measured per render (the row height steps with the viewport) and
+     written onto the stage: the album column and the lyrics panel are siblings, so
+     a custom property they share has to be declared on their common parent. */
+  --track-reserve: 0px;
   /* Where the archive text block's left edge falls, as a viewport-anchored length.
      The block is positioned against the page (`68.633333%` of the viewport); the
      navigation row is inset by the page margin, so a percentage against the row
@@ -672,8 +678,12 @@
      was painted behind the credits and showed through them (measured: one to two
      rows, up to a full row's height, at any scroll position). Padding does not
      fix this: padding does not shrink a box, the overlap stays. A bottom margin
-     of the footer's height plus its overhang does. */
-  margin-bottom: calc(var(--credits-h) + var(--credits-bottom));
+     of the footer's height plus its overhang does.
+     The reserved row comes on top of that: the list gives up one row of its own
+     height at the foot, so its visible bottom sits a whole row above the credits
+     and is the line the expanded lyrics card ends on. The value is measured (see
+     syncLyricsPanelAlignment), because the row height steps with the viewport. */
+  margin-bottom: calc(var(--credits-h) + var(--credits-bottom) + var(--track-reserve, 0px));
 }
 /* Credits, pinned to the column's bottom, and sized to the same band as the
    cover caption in the opposite corner so the two read as one row across the

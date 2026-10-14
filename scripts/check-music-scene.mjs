@@ -113,6 +113,15 @@ assert.ok(musicStyleSource.includes('scrollbar-gutter: stable'), 'the scrolling 
 assert.ok(musicStyleSource.includes('margin-right: calc(-1 * var(--detail-scrollbar))'), 'the scrolling region must overhang the column by exactly the scrollbar gutter: not overhanging left the album text short of the card edge, and overhanging further pushed it past');
 assert.ok(musicStyleSource.includes('padding-right: 0;'), 'the scrolling region must not add a gutter of its own on top of the reserved scrollbar track');
 assert.ok(/#album-detail-content\s*\{[\s\S]{0,400}overflow: visible/.test(musicStyleSource), 'the album column must not clip the scrolling region overhang, which hid the scrollbar entirely');
+// The track list and the expanded lyrics card must end on ONE line, and that line
+// has to be the list's own: the scroller gives up a row of its own height at its
+// foot (the band the transport controls are meant to move into), and the panel
+// reads the same edge. Both sides work from one measured value, so the visible
+// area stops changing with the album's track count.
+assert.ok(musicStyleSource.includes('var(--credits-h) + var(--credits-bottom) + var(--track-reserve'), 'the scrolling region must give up the reserved row-band under the track list');
+assert.ok(musicAppSource.includes('stage.style.setProperty("--track-reserve"'), 'the reserved row must be measured from the track list at runtime, never written down: the row height steps with the viewport');
+assert.ok(musicAppSource.includes('Math.floor(space / rowHeight)') && musicAppSource.includes('creditsTop - trackRows[0].top'), 'the reserved row must be read off the row grid anchored at the first row, never against the box bottom it is about to change, and never against the track list length');
+assert.ok(musicAppSource.includes('creditsTop - (trackReserve ?? 0)'), 'the panel bottom must be the credits edge less the reserved row, so the list and the card share one line');
 // The lyric size control scales the lines by MULTIPLYING the responsive clamp, and
 // the rule must be scoped to the app: a lyric line is a `<button>`, and the app's
 // own `.music-app button { font-size: inherit }` carries two classes, so a bare

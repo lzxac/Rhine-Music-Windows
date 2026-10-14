@@ -18,8 +18,8 @@ export class SurfaceTransition {
     private fadeTargets: readonly HTMLElement[] = [root],
   ) {}
 
-  show(reduced: boolean) {
-    this.run(true, reduced);
+  show(reduced: boolean, finished: () => void = () => {}) {
+    this.run(true, reduced, finished);
   }
 
   hide(reduced: boolean, finished: () => void = () => {}) {

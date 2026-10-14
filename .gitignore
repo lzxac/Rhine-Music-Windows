@@ -9,6 +9,10 @@ smoke-home/
 smoke-home-final/
 work/
 music-data-v3/
+# `rust/` is the native rewrite's tree, which lives on the `rust-port` branch.
+# Switching back to this branch leaves it in the working directory: it is not part
+# of this branch's tree, so it must never be committed here.
+rust/
 .env
 .env.*
 !.env.example

@@ -686,7 +686,11 @@ const presentation = new MusicPresentation({
   },
   showMenu: () => {
     const detail = $("#music-detail"), content = $("#album-detail-content");
-    detailTransition.show(preferences.reduced);
+    // Re-measure once the pane has finished entering. While it is still animating —
+    // or still hidden — the album column has no usable box, so the sync the render
+    // triggered measured nothing and nothing else would retry it. The track list's
+    // reserved row and the lyrics card's bottom edge both come from that measurement.
+    detailTransition.show(preferences.reduced, syncLyricsPanelAlignment);
     detail.inert = !!panel;
     detail.setAttribute("aria-hidden", "false");
     content.inert = false;
@@ -1874,6 +1878,12 @@ let lyricsTitleTop: number | null = null;
 // Same idea for the panel's bottom: only accept a reading taken from a laid-out
 // album column.
 let lyricsBottomInset: number | null = null;
+// The row-band the track list keeps free at its foot. Measured, never written
+// down: the row height steps with the viewport (52px at 1440x900, 66px at
+// 1920x1080). The album column's scroller reads it as an extra bottom margin and
+// the panel reads the same number to land on the same line, so it is written onto
+// the stage — the two boxes that share it are not parent and child.
+let trackReserve: number | null = null;
 function syncLyricsPanelAlignment() {
   const panel = document.querySelector<HTMLElement>("#music-lyrics-panel");
   const column = document.querySelector<HTMLElement>("#album-detail-content");
@@ -1936,17 +1946,45 @@ function syncLyricsPanelAlignment() {
   const borderRight = parseFloat(columnStyles.borderRightWidth) || 0;
   panel.style.setProperty("--lyrics-left-pad", `${paddingLeft + borderLeft}px`);
   panel.style.setProperty("--lyrics-right-pad", `${paddingRight + borderRight}px`);
-  // The expanded panel stops at the rule that closes the track list — the
-  // bottom border of its last row — which is the line the album column's own
-  // content ends on. Never run past the column itself.
-  const lastTrack = column.querySelector<HTMLElement>("#album-tab-content .track-item:last-of-type");
+  // The track list and the expanded lyrics card end on ONE line, and the line
+  // belongs to the list: the scroller keeps one row of its own height free at its
+  // foot (that band is where the transport controls are meant to move later), so
+  // both views show the same visible area whatever the track count — which is what
+  // makes switching between them stand still. The list is never asked to give up a
+  // row it is not showing: a list too short to reach the band only loses the row's
+  // height. The row grid is read from the first row's own top, which does not move
+  // with the box: measuring against the box's current bottom instead would make the
+  // reserve feed back into its own measurement (measured: it settled anywhere
+  // between 0 and 7px and the list kept cutting a row in half).
+  const trackRows = [...column.querySelectorAll<HTMLElement>("#album-tab-content .track-item")]
+    .map((row) => row.getBoundingClientRect())
+    .filter((box) => box.width > 0);
+  // The credits block is pinned to the column's foot, so it is the fixed edge the
+  // line is measured against. Never run past the column itself.
+  const credits = column.querySelector<HTMLElement>(".album-detail-footer")
+    ?? column.querySelector<HTMLElement>(".producer-section");
+  const creditsTop = measurable(credits) ? Math.round(credits.getBoundingClientRect().top) : null;
+  if (creditsTop !== null && trackRows.length > 0) {
+    const rowHeight = trackRows[0].height;
+    const space = creditsTop - trackRows[0].top;
+    const wholeRows = rowHeight > 0 ? Math.floor(space / rowHeight) : 0;
+    // One whole row is handed over, plus the slice of a row the scroller was cutting
+    // through, so the cut lands on a row's bottom rule instead of through its text.
+    // A window too short to hold two whole rows keeps its list: there is no row to
+    // give up without emptying it.
+    trackReserve = wholeRows >= 2 ? Math.round(space - (wholeRows - 1) * rowHeight) : 0;
+  }
+  // Written under the same guard as the measurements above: an album with no
+  // measurable track row (the introduction tab, an empty album) keeps the last
+  // reserve instead of letting the list jump back to full height for one frame.
+  if (trackReserve !== null) stage.style.setProperty("--track-reserve", `${trackReserve}px`);
+  // The line is that footer's own top edge less the reserved row — the same
+  // expression the stylesheet builds the scroller's bottom margin from, so the card
+  // and the list agree by construction instead of by a second measurement.
   if (measurable(body)) {
     const columnBottom = Math.round(column.getBoundingClientRect().bottom);
-    const contentBottom = measurable(lastTrack)
-      ? Math.round(lastTrack.getBoundingClientRect().bottom)
-      : Math.round(column.querySelector<HTMLElement>(".producer-section")?.getBoundingClientRect().top ?? columnBottom);
-    const limit = Math.min(contentBottom, columnBottom);
-    lyricsBottomInset = Math.max(0, stageHeight - limit);
+    const listBottom = creditsTop === null ? columnBottom : creditsTop - (trackReserve ?? 0);
+    lyricsBottomInset = Math.max(0, stageHeight - Math.min(listBottom, columnBottom));
   }
   if (lyricsBottomInset !== null) {
     panel.style.setProperty("--lyrics-bottom", `${lyricsBottomInset}px`);
