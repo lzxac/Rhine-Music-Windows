@@ -4,10 +4,14 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
-# B1: 仅用于验证窗口技术栈（winit）。不参与现有 npm/PowerShell 构建链，
-# 也不读写 version.json / src / dist / public。
+# B2：只做渲染管线 + glb 载入 + 最简光照，不涉及曲库/音频/UI/打包。
 [dependencies]
 winit = "0.30"
+wgpu = "0.20"
+pollster = "0.3"
+glam = "0.28"
+gltf = "1.4"
+bytemuck = { version = "1", features = ["derive"] }
 
 [profile.release]
 opt-level = 2
