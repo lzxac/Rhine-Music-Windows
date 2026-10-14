@@ -297,6 +297,7 @@ git merge main
    node scripts/music-server.mjs     # 服务每次请求现读 dist，改完只需 build + 浏览器 Ctrl+Shift+R
    ```
 3. 测试歌曲：**`林子汐 - NUNA3.0`**（track id `track-3885ff186af821e6c45ba7d8`，专辑 `NUNA3.0`，49 行歌词）。
+   > 注：`林子汐` 为测试样例数据（测试曲目/复现样例的一部分），非真实个人信息；如需对外分发请另行评估。
 4. **验证脚手架在仓库外**：`<verify>\css-diff\`（CDP 驱动 Edge headless 的量测脚本）。仓库里不留任何临时文件。
    **每次改完先跑 `boot-diag.mjs`** —— 它监控未捕获异常/boot 状态。本轮曾因一个 `let` 声明在函数之后（TDZ）导致整个应用启动中断、卡在"正在载入三维专辑架"，而当时所有"只看几个盒子"的脚本全部漏过。
 

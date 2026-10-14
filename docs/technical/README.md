@@ -43,7 +43,9 @@
 | `scripts/build-pwa.mjs` | `dist/sw.js`、`dist/pwa-build.json`（构建期，不入库） |
 | `scripts/build-app-icon.ps1` | `desktop/app.ico`（源图 `desktop/app-icon-source.png` 入库） |
 
-版本号变更**只能通过生成器命令**（`--allocate-dev` / `--sync` / `--dry-run` / `--finalize`）；回滚方案待定（见与用户的审计沟通第 3 项）。
+版本号变更**只能通过生成器命令**（`--allocate-dev` / `--sync` / `--dry-run` / `--finalize` / `--rollback-to <version>`）。`--rollback-to` 用于撤销**尚未产出任何产物**的开发版号（构建失败后不浪费号段），目标版本已有产物时拒绝，且只允许在同一 baseVersion 上向后移动；CHANGELOG 历史条目不删除。
+
+> **已知不一致（暂不修）**：`version.mjs` 的默认 `outputDir` 为 `B:\outputs`，而构建脚本 `build-windows.ps1` 的默认输出为 `<repo>\..\outputs`（工作区 `outputs`）。二者不一致，但产物扫描包含 `outputDir`、工作区 `outputs`、`work` 三处，因此正常构建不受影响。**跨目录调用 `version.mjs` 时必须显式传 `--output-dir`**，否则产物冲突判定可能落空。修默认值会影响已有调用方，故本轮只记录。
 
 ## 5. 端口与运行形态
 
@@ -52,7 +54,6 @@
 - vite 开发/预览默认端口：5173。
 - 并存关系：启动器独占 5175–5184，vite 与服务默认使用 5173，两段互不重叠，桌面端与开发服务器可同时运行。
 - 版本节奏：**已发布的 `0.7.0-dev.11` 不含端口修复（属预期）**；下一个真实版本 `0.7.0-dev.12` 会自然带上该修复。
-- **冲突待处理（见第 7 项）**：上述三处存在潜在冲突，最终取值待定，本文件暂不写最终值。
 
 ## 6. 数据与版本口径
 
@@ -60,11 +61,30 @@
 - 曲库索引的口径由 `scripts/music-library.mjs` 的 `LIBRARY_LAYOUT_VERSION` 与按条目的 `_entryId` 控制；布局规则变化时以失效缓存的方式生效，**不修改历史数据**。
 - PWA 离线缓存的版本键由 `build-pwa.mjs` 写入 `pwa-cache` 相关产物。
 - 本项目**无数据库**，因此不存在传统迁移脚本；数据口径变更按"追加新版本 + 失效旧缓存"的方式推进。
-- 测试样例数据说明：`林子汐` 为**测试样例数据**（测试曲目/复现样例的一部分），**非真实个人信息**；如需对外分发请另行评估。
+- 测试样例数据说明：`林子汐` 为测试样例数据（测试曲目/复现样例的一部分），非真实个人信息；如需对外分发请另行评估。
 
 ## 7. 完整校验定义
 
-> 占位：待"校验脚本分类表"定稿后回填（分类依据：是否被 npm 脚本串联、是否依赖浏览器/CDP；已知失败项 `check-music-scene` 属历史遗留，不计入门槛）。
+**本定义为当前生效版本，随 CI 建立再更新。**
+
+> 依据：npm 脚本串联关系与脚本内标记（是否依赖浏览器/CDP），**未逐行通读**；如需精确分类可另立任务。
+
+**门槛内（必须通过）**
+
+| 分类 | 脚本 | 依据 |
+|---|---|---|
+| 官方必跑（`check:music` 串联 13 项） | `check-music-library`、`check-album-introductions`、`check-lyrics`、`check-quality`、`check-viewport`、`check-music-player`、`check-music-motion`、`check-music-camera`、`check-music-lighting`、`check-music-presentation`、`check-music-model`、`check-version`；另有独立命令 `check:content` | `package.json` scripts 串联 |
+| 目标模块跑（依赖浏览器/CDP 或本地服务，改动相关模块时必须跑） | `check-motion`、`check-responsive`、`check-pwa`、`check-music-launcher` | 脚本内 CDP / `127.0.0.1` 标记 |
+| 可选 / 待归类（非门槛，按需运行） | `check-loop`、`check-shell`、`check-archive`、`check-appearance`、`check-assembly`、`check-decryption`、`check-internal-optics` | 无 test 框架、无浏览器标记 |
+
+**门槛外（历史遗留，不计入完整校验门槛）**
+
+| 脚本 | 原因 | 依据 |
+|---|---|---|
+| `check-music-scene` | `CoverAtlas.writePageTile` 无 canvas 实现，在无浏览器环境下抛错 | CHANGELOG dev.58 / dev.1 条目 |
+| `check-music-launcher`（2 个用例，其余通过） | ① `Finder command changes cwd safely…`：依赖 macOS 专用文件 `启动音乐播放器.command`，在 Windows 必然 `ENOENT`（跨平台问题）；② `health endpoint is read-only…`：`ERR_INVALID_ARG_TYPE: paths[0] must be of type string`，涉及 Node 版本兼容/用例传参 | 历史遗留，与端口改动无关；需独立任务处理，不在本轮修 |
+
+非检查类工具（不参与校验）：`analyze-reference-audio.mjs`（音频分析）、`sanitize_blend_browser_metadata.py`（Python 工具，环境未验证）。
 
 ## 8. 已知坑与硬约束
 
