@@ -98,6 +98,9 @@ const preferences = {
     theme: "day" as Theme,
     sortMode: "genre" as MusicSortMode,
     quality: "original" as QualityPreset,
+    // Bumped when the default render quality changes, so an untouched old default is
+    // migrated once instead of being treated as a deliberate choice.
+    qualityRevision: 1,
     reduced: false,
     volume: 0.65,
     songFade: true,
@@ -212,6 +215,29 @@ function stepLyricSize(direction: number) {
 // `stage.innerHTML` assignment below), and after the `const` declarations above —
 // calling it earlier would either miss the element or hit a temporal-dead-zone
 // ReferenceError, and that exact mistake has stopped this app's boot once before.
+//
+// Quality revision 2: the default preset moved to the performance tier and the render
+// loop is paced, so paying for a full-quality render on an otherwise idle screen is no
+// longer worth it. This runs before the effective quality is resolved, so the new
+// default applies in this same boot. A stored `original` — including the per-parameter
+// block the legacy migration below writes itself — is not a deliberate choice the
+// settings panel can produce (that would read `custom`), so it is migrated; every
+// preset, and every custom parameter set, stays one click away.
+const QUALITY_REVISION = 6;
+if ((preferences.qualityRevision ?? 1) < QUALITY_REVISION) {
+  preferences.qualityRevision = QUALITY_REVISION;
+  // Revisions 3 and 5 briefly shipped the cheaper preset as the default. It lowers the
+  // render scale, which the owner could see as a softer picture, and the aggressive
+  // variant of it also erased the album covers, so the default is the original preset
+  // again. The render-loop pacing is what actually removed the fan noise and it costs no
+  // image quality at all, so that stays. A quality preset is a deliberate choice here, so
+  // nothing else is touched.
+  if (preferences.quality === "performance") {
+    preferences.quality = "original";
+    preferences.renderQuality = undefined;
+  }
+  save("rhine-music-preferences", preferences);
+}
 let renderQuality = normalizeQuality(
   preferences.quality === "original" &&
     preferences.renderQuality?.pixelRatio === 1.5 &&
@@ -230,7 +256,7 @@ if (!["day", "dusk", "night"].includes(preferences.theme)) {
   save("rhine-music-preferences", preferences);
 }
 if (!Object.hasOwn(qualityPresets, preferences.quality))
-  preferences.quality = "original";
+  preferences.quality = "performance";
 const gpuCapability = probeGpuCapability();
 if (!["genre", "artist", "album"].includes(preferences.sortMode))
   preferences.sortMode = "genre";
@@ -1094,6 +1120,10 @@ function navigationSelection() {
 }
 function stepAlbum(direction: number) {
   if (!records.length) return;
+  // An album step moves the camera and the selection light over the next couple of
+  // seconds; hold the display rate for that flight instead of dropping to the idle
+  // cadence the moment the pointer stops.
+  keepActive(TRANSITION_HOLD_MS);
   const cursor = navigationSelection();
   const files = columnFiles(fileLocation(cursor).lane);
   if (files.length > 1)
@@ -2559,17 +2589,59 @@ document.addEventListener("keydown", (e) => {
 
 let lastFrame = 0,
   frameCount = 0;
+
+// Render pacing. The archive scene is redrawn on every display refresh even when
+// nothing moves, which pins the GPU at the panel's refresh rate while the user just
+// reads the shelf or listens to music. Frames are now paced: display rate while the
+// user is interacting or something is visibly transitioning, and a low rate once the
+// picture settles. scene.update() integrates from the frame timestamp and clamps its
+// step at 50 ms, so a 30 fps idle cadence stays exact.
+const IDLE_INTERVAL_MS = 1000 / 30;
+const ACTIVITY_HOLD_MS = 400;
+const TRANSITION_HOLD_MS = 4000;
+let activeUntil = 0;
+let lastRenderedAt = 0;
+let lastPlayerSignature = "";
+const keepActive = (hold = ACTIVITY_HOLD_MS) => {
+  activeUntil = Math.max(activeUntil, performance.now() + hold);
+};
+for (const eventName of ["pointermove", "pointerdown", "pointerup", "keydown", "wheel"]) {
+  window.addEventListener(eventName, () => keepActive(), { passive: true });
+}
+window.addEventListener("resize", () => keepActive(TRANSITION_HOLD_MS));
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) keepActive();
+});
+
 function frame(ms: number) {
   if (!document.hidden && scene) {
+    const now = performance.now();
+    const fullRate = Boolean(viewer?.isOpen) || Boolean(boot?.active) || now < activeUntil;
+    if (!fullRate && now - lastRenderedAt < IDLE_INTERVAL_MS) {
+      requestAnimationFrame(frame);
+      return;
+    }
+    lastRenderedAt = now;
+    const playerSignature = `${playerState.playing ? 1 : 0}:${playerState.currentTrack?.id ?? ""}`;
+    if (playerSignature !== lastPlayerSignature) {
+      lastPlayerSignature = playerSignature;
+      keepActive(TRANSITION_HOLD_MS);
+    }
     const frameStartedAt = performance.now();
     const opening = boot?.update(ms / 1000);
     if (!viewer?.isOpen) scene.update(ms / 1000, opening?.cinema);
     viewer?.update(ms / 1000);
     if (!viewer?.isOpen && !boot?.active) presentation.update();
     const phase = presentation.phase;
-    if (stage.dataset.presentation !== phase) stage.dataset.presentation = phase;
+    if (stage.dataset.presentation !== phase) {
+      stage.dataset.presentation = phase;
+      keepActive(TRANSITION_HOLD_MS);
+    }
     const cameraPhase = scene.musicPresentationPhase;
-    if (stage.dataset.cameraPhase !== cameraPhase) stage.dataset.cameraPhase = cameraPhase;
+    if (stage.dataset.cameraPhase !== cameraPhase) {
+      stage.dataset.cameraPhase = cameraPhase;
+      keepActive(TRANSITION_HOLD_MS);
+    }
     if (presentation.phase === "detail") {
       documentDecryption.update(
         ms / 1000,

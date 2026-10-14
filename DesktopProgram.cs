@@ -18,15 +18,15 @@ using Microsoft.Web.WebView2.Core;
 [assembly: AssemblyTitle("Rhine Music Desktop")]
 [assembly: AssemblyProduct("Rhine Music")]
 [assembly: AssemblyDescription("Rhine Music independent Windows desktop player")]
-[assembly: AssemblyVersion("0.7.0.10")]
-[assembly: AssemblyFileVersion("0.7.0.10")]
-[assembly: AssemblyInformationalVersion("0.7.0-dev.10")]
+[assembly: AssemblyVersion("0.7.0.11")]
+[assembly: AssemblyFileVersion("0.7.0.11")]
+[assembly: AssemblyInformationalVersion("0.7.0-dev.11")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Bong712")]
 
 internal static class Program
 {
     private const string ProductName = "Rhine Music";
-    private const string AppVersion = "0.7.0-dev.10";
+    private const string AppVersion = "0.7.0-dev.11";
     private static int startedProcessId;
     private const uint CreateNoWindow = 0x08000000;
     private const uint StartfUseShowWindow = 0x00000001;
@@ -42,7 +42,7 @@ internal static class Program
 
     private static readonly string ProductRoot = GetProductRoot();
     private static readonly string AppRoot = Path.Combine(ProductRoot, "app-v" + AppVersion);
-    private static readonly string DataRoot = Path.Combine(ProductRoot, "music-data-v3");
+    internal static readonly string DataRoot = Path.Combine(ProductRoot, "music-data-v3");
 
     private static string GetProductRoot()
     {
@@ -545,6 +545,9 @@ internal sealed class DesktopWindow : Form
     private readonly bool profileCapture;
     private readonly string profileCapturePath;
     private bool profileCaptureStarted;
+    private readonly string[] perfScenarios;
+    private readonly string perfOutputPath;
+    private bool perfRunStarted;
     private int responseDiagnosticsCount;
     private Rectangle windowedBounds;
     private FormBorderStyle windowedBorderStyle;
@@ -725,6 +728,13 @@ internal sealed class DesktopWindow : Form
         profileCapturePath = Path.Combine(profile, "profile-capture.jsonl");
         edgeDiagnostics = Environment.GetEnvironmentVariable("RHINE_EDGE_DIAG") == "1";
         edgeDiagnosticsPath = Path.Combine(Path.GetTempPath(), "rhine-edge-diag.log");
+        var perfScenarioList = Environment.GetEnvironmentVariable("RHINE_PERF_SCENARIOS");
+        perfScenarios = string.IsNullOrWhiteSpace(perfScenarioList) ? null : SplitList(perfScenarioList);
+        perfOutputPath = Environment.GetEnvironmentVariable("RHINE_PERF_OUT");
+        if (perfScenarios != null && string.IsNullOrWhiteSpace(perfOutputPath))
+        {
+            perfOutputPath = Path.Combine(Program.DataRoot, "performance-phases.jsonl");
+        }
         Text = "Rhine Music";
         using (var iconStream = typeof(Program).Assembly.GetManifestResourceStream("RhineMusicIcon.ico"))
         {
@@ -844,6 +854,18 @@ internal sealed class DesktopWindow : Form
                             Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
                     }
                 };
+                if (perfScenarios != null)
+                {
+                    // Performance acceptance run: drive the scenarios and timestamp each
+                    // phase so the PresentMon capture can be sliced per scenario.
+                    browser.CoreWebView2.NavigationCompleted += async (source, navigation) =>
+                    {
+                        if (!navigation.IsSuccess || perfRunStarted) return;
+                        perfRunStarted = true;
+                        await RunPerformanceScenariosAsync();
+                        if (Environment.GetEnvironmentVariable("RHINE_PERF_EXIT") == "1") Application.Exit();
+                    };
+                }
                 browser.Source = new Uri(address);
             }
             catch (Exception error)
@@ -853,6 +875,189 @@ internal sealed class DesktopWindow : Form
                 Close();
             }
         };
+    }
+
+    private static string[] SplitList(string value)
+    {
+        var parts = value.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+        var result = new List<string>();
+        foreach (var part in parts)
+        {
+            var trimmed = part.Trim().ToLowerInvariant();
+            if (trimmed.Length > 0) result.Add(trimmed);
+        }
+        return result.ToArray();
+    }
+
+    // One line per phase. Both a UTC timestamp and a QueryPerformanceCounter value are
+    // recorded; PresentMon's CPU start time uses the same counter, so the capture can be
+    // sliced per scenario without relying on wall-clock alignment.
+    private void WritePerfMarker(string scenario, string phase, string detailJson)
+    {
+        if (string.IsNullOrWhiteSpace(perfOutputPath)) return;
+        try
+        {
+            var directory = Path.GetDirectoryName(perfOutputPath);
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            var line = "{\"utc\":\"" + DateTime.UtcNow.ToString("o") + "\""
+                + ",\"qpcMs\":" + (Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency)
+                    .ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+                + ",\"scenario\":\"" + scenario + "\""
+                + ",\"phase\":\"" + phase + "\""
+                + (string.IsNullOrEmpty(detailJson) ? "" : ",\"detail\":" + detailJson)
+                + "}";
+            File.AppendAllText(perfOutputPath, line + Environment.NewLine, Encoding.UTF8);
+        }
+        catch { }
+    }
+
+    private async System.Threading.Tasks.Task RunPerformanceScenariosAsync()
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(perfOutputPath))
+            {
+                var directory = Path.GetDirectoryName(perfOutputPath);
+                if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+                File.WriteAllText(perfOutputPath, "", Encoding.UTF8);
+            }
+
+            var ready = false;
+            for (var attempt = 0; attempt < 240 && !ready; attempt++)
+            {
+                var response = await EvaluateProfileAsync(
+                    "Boolean(window.rhineMusic && window.rhineMusic.stats && window.rhineMusic.stats()?.loaded)");
+                ready = ReadScriptValue(response) as bool? == true;
+                if (!ready) await System.Threading.Tasks.Task.Delay(250);
+            }
+            WritePerfMarker("run", "renderer-ready", "{\"ready\":" + (ready ? "true" : "false") + "}");
+
+            await EvaluateProfileAsync(
+                "(function(){if(window.rhineMusic&&window.rhineMusic.selectedAlbum)return true;" +
+                "var button=document.querySelector('#music-empty [data-action=\"demo\"]');" +
+                "if(!button)return false;button.click();return true;})()");
+            for (var attempt = 0; attempt < 120; attempt++)
+            {
+                var archive = await EvaluateProfileAsync(
+                    "Boolean(window.rhineMusic && window.rhineMusic.presentation && window.rhineMusic.presentation.archiveReady)");
+                if (ReadScriptValue(archive) as bool? == true) break;
+                await System.Threading.Tasks.Task.Delay(250);
+            }
+            await System.Threading.Tasks.Task.Delay(1500);
+
+            var metadata = "null";
+            var metadataValue = ReadScriptValue(await EvaluateProfileAsync(
+                "JSON.stringify((function(){const app=window.rhineMusic||{};const host=document.querySelector('#three-scene');" +
+                "const canvas=host&&host.querySelector('canvas');" +
+                "return {appVersion:(app.profile?app.profile().version:null),innerWidth:innerWidth,innerHeight:innerHeight," +
+                "devicePixelRatio:devicePixelRatio,screenWidth:screen.width,screenHeight:screen.height," +
+                "backbufferWidth:canvas?canvas.width:null,backbufferHeight:canvas?canvas.height:null," +
+                "renderQuality:host?(host.dataset.renderQuality||null):null,albums:(app.library?app.library.albums.length:null)," +
+                "gpu:app.gpuCapability||null};})())"));
+            if (metadataValue is string) metadata = (string)metadataValue;
+            WritePerfMarker("run", "metadata", metadata);
+
+            foreach (var scenario in perfScenarios)
+            {
+                switch (scenario)
+                {
+                    case "cold-switch":
+                        await RunAlbumSwitchesAsync(scenario, "next", 3, 1600, 2600);
+                        break;
+                    case "warm-switch":
+                        await RunAlbumSwitchesAsync(scenario, "prev", 3, 1600, 2600);
+                        break;
+                    case "rapid-switch":
+                        await RunAlbumSwitchesAsync(scenario, "next", 6, 220, 2600);
+                        break;
+                    case "album-detail":
+                        await RunAlbumDetailScenarioAsync();
+                        break;
+                    case "theme-switch":
+                        await RunThemeSwitchScenarioAsync();
+                        break;
+                    case "large-library":
+                        await RunAlbumSwitchesAsync(scenario, "next", 8, 900, 2600);
+                        break;
+                    default:
+                        WritePerfMarker(scenario, "skipped", "{\"reason\":\"unknown scenario\"}");
+                        break;
+                }
+            }
+            WritePerfMarker("run", "complete", null);
+        }
+        catch (Exception error)
+        {
+            WritePerfMarker("run", "failed",
+                "{\"error\":" + new JavaScriptSerializer().Serialize(error.Message) + "}");
+        }
+    }
+
+    private async System.Threading.Tasks.Task RunAlbumSwitchesAsync(
+        string scenario, string action, int count, int delayMilliseconds, int dwellMilliseconds)
+    {
+        WritePerfMarker(scenario, "start",
+            "{\"action\":\"" + action + "\",\"count\":" + count + ",\"delayMs\":" + delayMilliseconds + "}");
+        var firstAlbum = ReadScriptValue(await EvaluateProfileAsync(
+            "(function(){var app=window.rhineMusic;return app&&app.selectedAlbum?app.selectedAlbum.id:null;})()")) as string;
+        var failures = 0;
+        for (var index = 0; index < count; index++)
+        {
+            var response = await EvaluateProfileAsync(
+                "(function(){var button=document.querySelector('.album-stepper [data-action=\"" + action + "\"]');" +
+                "if(!button)return false;button.click();return true;})()");
+            if (ReadScriptValue(response) as bool? != true) failures++;
+            await System.Threading.Tasks.Task.Delay(delayMilliseconds);
+        }
+        await System.Threading.Tasks.Task.Delay(dwellMilliseconds);
+        var lastAlbum = ReadScriptValue(await EvaluateProfileAsync(
+            "(function(){var app=window.rhineMusic;return app&&app.selectedAlbum?app.selectedAlbum.id:null;})()")) as string;
+        var changed = firstAlbum != null && lastAlbum != null && firstAlbum != lastAlbum;
+        WritePerfMarker(scenario, "end",
+            "{\"failures\":" + failures + ",\"albumChanged\":" + (changed ? "true" : "false")
+            + ",\"firstAlbum\":" + new JavaScriptSerializer().Serialize(firstAlbum)
+            + ",\"lastAlbum\":" + new JavaScriptSerializer().Serialize(lastAlbum) + "}");
+    }
+
+    private async System.Threading.Tasks.Task RunAlbumDetailScenarioAsync()
+    {
+        WritePerfMarker("album-detail", "start", null);
+        var openedResponse = await EvaluateProfileAsync(
+            "(function(){var button=document.querySelector('.open-album');if(!button)return false;button.click();return true;})()");
+        var opened = ReadScriptValue(openedResponse) as bool? == true;
+        var detailReady = false;
+        for (var attempt = 0; attempt < 60 && opened; attempt++)
+        {
+            var detail = await EvaluateProfileAsync(
+                "Boolean(window.rhineMusic&&window.rhineMusic.presentation&&" +
+                "window.rhineMusic.presentation.phase==='detail'&&window.rhineMusic.presentation.cameraReady)");
+            detailReady = ReadScriptValue(detail) as bool? == true;
+            if (detailReady) break;
+            await System.Threading.Tasks.Task.Delay(100);
+        }
+        await System.Threading.Tasks.Task.Delay(5200);
+        await EvaluateProfileAsync(
+            "(function(){var button=document.querySelector('.music-back');if(!button)return false;button.click();return true;})()");
+        await System.Threading.Tasks.Task.Delay(1600);
+        WritePerfMarker("album-detail", "end",
+            "{\"opened\":" + (opened ? "true" : "false") + ",\"detailReady\":" + (detailReady ? "true" : "false") + "}");
+    }
+
+    private async System.Threading.Tasks.Task RunThemeSwitchScenarioAsync()
+    {
+        WritePerfMarker("theme-switch", "start", null);
+        var themes = new[] { "day", "dusk", "night" };
+        var applied = 0;
+        foreach (var theme in themes)
+        {
+            var response = await EvaluateProfileAsync(
+                "(function(){var button=document.querySelector('button[data-theme=\"" + theme + "\"]');" +
+                "if(!button)return false;button.click();return true;})()");
+            if (ReadScriptValue(response) as bool? == true) applied++;
+            await System.Threading.Tasks.Task.Delay(1600);
+        }
+        await System.Threading.Tasks.Task.Delay(2600);
+        WritePerfMarker("theme-switch", "end", "{\"applied\":" + applied + ",\"expected\":" + themes.Length + "}");
     }
 
     private async System.Threading.Tasks.Task CaptureProfileAsync()

@@ -168,17 +168,39 @@ if (dryRun) {
   process.exit(0)
 }
 
-const releaseAcceptance = async () => {
-  if (state.channel !== 'dev') throw new Error('Only a development candidate can be finalized.')
-  const acceptancePath = path.join(root, 'performance-acceptance.json')
-  let acceptance
-  try { acceptance = JSON.parse(await readFile(acceptancePath, 'utf8')) }
-  catch { throw new Error('A final release requires a verified performance-acceptance.json report.') }
-  const requiredScenarios = ['cold-switch', 'warm-switch', 'rapid-switch', 'album-detail', 'theme-switch', 'large-library']
+const acceptanceScenarios = ['cold-switch', 'warm-switch', 'rapid-switch', 'album-detail', 'theme-switch', 'large-library']
+
+// Two accepted standards, both backed by PresentMon display-interval evidence:
+//   1. performance-acceptance.json — the original upstream standard: native 3840x2160.
+//   2. performance-acceptance-reference.json — this fork's addition: the owner's
+//      reference machine, whose measured backbuffer must be documented and at least
+//      2560x1440. Neither standard can be satisfied by upscaling a smaller render.
+const acceptanceStandards = [
+  {
+    kind: 'native-4k',
+    file: 'performance-acceptance.json',
+    renderResolution: '3840x2160',
+    requireDocumentedHardware: false,
+    minimumSize: null,
+  },
+  {
+    kind: 'reference-machine',
+    file: 'performance-acceptance-reference.json',
+    renderResolution: null,
+    requireDocumentedHardware: true,
+    minimumSize: { width: 2560, height: 1440 },
+  },
+]
+
+const validateAcceptance = (acceptance, standard) => {
+  const renderResolution = standard.renderResolution ?? acceptance.renderResolution
+  if (typeof renderResolution !== 'string' || !/^\d+x\d+$/.test(renderResolution)) {
+    throw new Error('the report does not state which resolution was rendered')
+  }
   const scenarios = new Map((Array.isArray(acceptance.scenarios) ? acceptance.scenarios : []).map(item => [item?.name, item]))
-  const allScenariosPass = requiredScenarios.every(name => {
+  const allScenariosPass = acceptanceScenarios.every(name => {
     const item = scenarios.get(name)
-    return item?.renderResolution === '3840x2160'
+    return item?.renderResolution === renderResolution
       && item?.displayedFps >= 60
       && item?.p95DisplayIntervalMs <= 16.67
   })
@@ -186,8 +208,43 @@ const releaseAcceptance = async () => {
     || acceptance.displayMetric !== 'MsBetweenDisplayChange'
     || acceptance.renderQuality !== 'original' || acceptance.upscaled !== false
     || !allScenariosPass) {
-    throw new Error('A final release requires PresentMon display-interval evidence at native 3840x2160/original quality, passing all six scenarios at 60 displayed FPS or higher.')
+    throw new Error(`the report does not pass all six scenarios at 60 displayed FPS or higher (${renderResolution}, original quality, PresentMon MsBetweenDisplayChange)`)
   }
+  if (standard.requireDocumentedHardware) {
+    const hardware = acceptance.referenceHardware
+    if (!hardware || typeof hardware.backbuffer !== 'string' || hardware.backbuffer !== renderResolution) {
+      throw new Error('a reference-machine report must document the measured hardware and repeat its backbuffer as the render resolution')
+    }
+  }
+  if (standard.minimumSize) {
+    const [width, height] = renderResolution.split('x').map(Number)
+    if (!(width >= standard.minimumSize.width && height >= standard.minimumSize.height)) {
+      throw new Error(`the reference-machine standard needs a backbuffer of at least ${standard.minimumSize.width}x${standard.minimumSize.height}, but the report measured ${renderResolution}`)
+    }
+  }
+  return renderResolution
+}
+
+const releaseAcceptance = async () => {
+  if (state.channel !== 'dev') throw new Error('Only a development candidate can be finalized.')
+  const rejected = []
+  for (const standard of acceptanceStandards) {
+    let acceptance
+    try {
+      acceptance = JSON.parse(await readFile(path.join(root, standard.file), 'utf8'))
+    } catch {
+      rejected.push(`${standard.file}: not present`)
+      continue
+    }
+    try {
+      const renderResolution = validateAcceptance(acceptance, standard)
+      console.log(`performance acceptance: ${standard.kind} standard satisfied at ${renderResolution}`)
+      return
+    } catch (error) {
+      rejected.push(`${standard.file}: ${error.message}`)
+    }
+  }
+  throw new Error('A final release requires a verified performance acceptance report. Tried ' + rejected.join(' | '))
 }
 
 const releaseLock = process.env.RHINE_BUILD_LOCK_HELD === '1'

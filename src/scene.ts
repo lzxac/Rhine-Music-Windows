@@ -833,6 +833,10 @@ export class ArchiveScene {
     }
     this.light.shadow.needsUpdate = true;
     applyTextureQuality(this.scene, this.renderer, quality);
+    // The quality pass may re-flag textures for upload; a page texture holds its painted
+    // tiles only on the GPU, so tell the atlas to paint them again rather than leaving
+    // blank cards behind.
+    this.covers?.repaintAll();
     this.resize();
   }
   private cellPosition(cell: ArchiveCell) {

@@ -435,8 +435,26 @@ export class CoverAtlas {
     }
   }
 
-  private updateSelectedTexture() {
-    // Let WebGL upload the canvas source directly. Reading back a 1024² canvas
+  /**
+   * Marks every painted tile for a repaint. The painted content of a page lives only on
+   * the GPU (tiles are copied with `copyTextureToTexture` and the CPU-side array stays
+   * empty), so anything that re-uploads a page texture — an anisotropy change from the
+   * render-quality pass, a context restore — silently erases the artwork. Callers that
+   * touch the page textures must call this afterwards; the atlas repaints from the
+   * decoded images it already holds.
+   */
+  repaintAll() {
+    if (this.disposed) return;
+    this.generation++;
+    for (const page of this.pages) {
+      page.renderedKeys.fill(undefined);
+      page.contentStates.fill(0);
+      page.texture.needsUpdate = true;
+    }
+    this.updateSelectedTexture();
+  }
+
+  private updateSelectedTexture() {    // Let WebGL upload the canvas source directly. Reading back a 1024² canvas
     // into JS pixels first stalls the main thread on a cold album selection.
     this.selectedTexture.needsUpdate = true;
   }

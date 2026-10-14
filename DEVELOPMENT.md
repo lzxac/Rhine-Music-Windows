@@ -266,11 +266,17 @@ git merge main
 - **改同一个版本号重打包时，必须删掉已解压目录** `%LOCALAPPDATA%\Rhine Music\app-v<版本>`：启动器只看 `.payload-ready` 标记，不比对内容，否则会继续跑旧 payload。同理**删除 outputs 里的旧产物前必须先关闭正在运行的程序**——exe 被占用时删除会静默失败，残留的产物会让版本分配器认为该序号已用，从而跳号（本轮真实踩到：dev.9 残留导致分配出 dev.10）。另外分配器还会扫描 `work/` 的目录名，构建临时目录残留也会造成跳号。
 - **版本号保持连续（用户要求，2026-10-13 起）**：构建脚本每次运行内部都会 `--allocate-dev` 递增一号，所以**构建前 version.json 必须停在"上一个已发布版本"**，让脚本分配出下一个号；**不要**手动预分配。若构建失败，回滚流程：把 `version.json` 退回上一个已发布版本 → `node scripts/version.mjs --sync` → 删掉 CHANGELOG 末尾的占位条目 → 清空 `outputs\` 里失败产生的文件 → 再跑构建。这样 dev 序号永不跳号。
 - `CHANGELOG.md` 与 `RELEASE_NOTES_0.7.0-dev.4.md` 已按第 5 节的规范写好。CHANGELOG 条目从旧到新排在**文件末尾**（注意顺序）。
+- **⚠️ 未知陷阱：切换画质档位会抹掉封面（2026-10-14，dev.13 回退）**：封面图集的内容**只存在于 GPU**（图块走 `copyTextureToTexture` 写入，`AtlasPage.data` 那份 CPU 数组始终是空的）。`applyTextureQuality()`（`quality-renderer.ts`）会把与"档位值不一致"的纹理标记 `needsUpdate = true`，一旦对图集纹理生效，**重传就会把封面全部抹白**（图集自己的诊断仍显示"已解码、无待处理"，看不出问题）。触发条件不是 `scale`／`transmission`／`anisotropy`（图集按 `min(4, anisotropy)` 创建，性能档正好是 4）也不是节流，**范围缩小到性能档剩余差异（`aoSamples: 0`、`depthOfField: 0`、`shadows: 1024`、`pixelRatio: 1`）**，尚未定位。因此**画质预设的默认值保持 `original`**，并在迁移里用 `qualityRevision = 4` 把已存的 `performance` 回退。**在修好之前不要让预设默认值改回 `performance`**；正确方向是让 `applyTextureQuality` 跳过图集纹理（或改完各向异性后让图集重绘），并把该 bug 纳入回归验证（切档位后截图确认封面仍在）。
+- **渲染节流（dev.12，用户要求的"风扇治理"）**：主循环不再无条件满帧重绘。`music-app.ts` 里 `frame()` 用 `IDLE_INTERVAL_MS = 1000/30` 做静止节流，靠 `keepActive()` 维持满帧：任何 pointer/key/wheel 事件给 1.5s，转场（`presentation.phase` / `scene.musicPresentationPhase` 变化）与播放状态变化给 4s；全屏模型查看器与开机动画期间恒为满帧。**新增任何动画/转场时必须让它调用 `keepActive()`（或落在上面的判定里），否则那段动画在静止状态下会被压到 30fps。** 实测：静止 GPU 88% → 33.5%（其中约 15–20 个百分点不随帧率变化，判断是 WebView2 合成开销的"地板"，见 `RUST-REWRITE-ANALYSIS.md`）。界面右下角"rAF诊断"可直接自检：静止约 30 FPS、一交互跳 100+。
 - **推送/发布前必须得到用户明确确认**（2026-10-14 用户要求，之前写的"每次交付默认推送"作废）：改完先交给用户试用，**用户说"可以"之后才推送、才发 Release**。用户是产品角色，他要用真实手感验收（本轮的缩放光标问题就是他试用后发现的，而我自己的自动化测试没发现）。
-- **正式版（去掉 `-dev` 的版本）的门槛与决定**（2026-10-14 明确）：`scripts/version.mjs` 的 `releaseAcceptance()` 硬性要求 `performance-acceptance.json`，内容是 **PresentMon 在真实 3840×2160 下**测出的 6 个场景（cold-switch / warm-switch / rapid-switch / album-detail / theme-switch / large-library）均 ≥60 显示帧、p95 `MsBetweenDisplayChange` ≤16.67ms，且不得降低画质或把低分辨率放大到 4K。**这是上游原项目自带的标准**（见 `BUILD-WINDOWS.md` 的"4K 性能验收"一节），不是本 fork 新增。
-  - 用户参考机是 **3440×1440 @144Hz + RTX 2070 SUPER**，无 4K 显示设备，因此**暂不发布正式版**，继续开发版线（dev.N）。
-  - 用户已同意：**以后可以新增**一套"本机分辨率（3440×1440@144Hz）"的验收标准，与原有 4K 标准**并存**（正式版满足任意一套即可），两套都如实写明测量硬件，不能互相顶替、不能伪造。
-  - 若将来接上 4K 显示设备：需装 PresentMon、自动化跑完 6 个场景、解析其 CSV（显示帧间隔）再写报告；app 已有可用的驱动钩子（`RHINE_PROFILE_CAPTURE` / `RHINE_PROFILE_THEME` / `RHINE_STRESS_LIBRARY`）。
+- **正式版（去掉 `-dev` 的版本）的门槛与决定**（2026-10-14 明确，2026-10-14 二次更新为"两套标准"）：`scripts/version.mjs` 的 `releaseAcceptance()` 硬性要求 PresentMon 的真实显示帧证据，**接受两套标准中的任意一套**：
+  1. **上游原生 4K 标准**（原项目自带，保持不变）：`performance-acceptance.json`，渲染缓冲区 3840×2160，6 个场景（cold-switch / warm-switch / rapid-switch / album-detail / theme-switch / large-library）各 ≥60 显示帧、p95 `MsBetweenDisplayChange` ≤16.67ms（见 `BUILD-WINDOWS.md` 的"4K 性能验收"一节）
+  2. **参考机标准（本项目新增）**：`performance-acceptance-reference.json`，渲染缓冲区 ≥2560×1440 且必须等于报告里实测的 backbuffer，同样 6 场景/同样阈值，必须写明实测硬件
+  两套都不允许降低画质或把低分辨率放大。**完整说明与运行方式见 `PERFORMANCE-ACCEPTANCE.md`**。
+  - 用户参考机是 **3440×1440 @144Hz + RTX 2070 SUPER**：**全屏**下 backbuffer 3440×1440（达标），最大化时只有 3440×1370（任务栏占 70px，不达标）→ 验收必须在全屏下跑。无 4K 显示设备，因此当前**仍不发正式版**，继续开发版线（dev.N）。
+  - 验收脚手架在仓库外 `B:\RHINE LAB_DEV\_verify\perf\`：`run-acceptance.ps1`（编排两轮运行 + PresentMon，需一次 UAC）、`analyze-capture.mjs`（按阶段标记切片、出报告）、`PresentMon.exe` 2.6.0。程序侧钩子：`RHINE_PERF_SCENARIOS` / `RHINE_PERF_OUT` / `RHINE_PERF_EXIT` / `RHINE_FULLSCREEN`，阶段标记（QPC + UTC）写在 `RHINE_PERF_OUT` 的 JSONL 里。**PresentMon 必须管理员权限**（ETW），否则报 `access denied`；脚本会自动提权重启自己。
+  - 发布闸门已实测（临时目录里跑 `--finalize`）：4K 标准有效 → 放行；参考机标准有效 → 放行；backbuffer 过小 / 无硬件块 / 只有 45fps / 无报告 → 全部拦截。`node scripts/check-version.mjs` 通过（覆盖原拦截路径）。
+  - 场景驱动已实测（无需管理员）：`cold-switch` 切换成功（`albumChanged:true`、`failures:0`）、`theme-switch` 三个主题全部应用（`applied:3/3`）、`album-detail` 打开并进入相机就绪（`opened:true,detailReady:true`）、metadata 记录到 backbuffer/GPU/曲库规模。
 - **GitHub Releases 的排序规律**（2026-10-14 实测确认，用于让"最新版排在最上面"）：
   - GitHub **不按时间排**。同一分组内是按**标签名字符串倒序**：`0.7.0-dev.9` > `0.7.0-dev.7` > … > `0.7.0-dev.5` > `0.7.0-dev.10`（字符串里 `"10" < "5"`），所以 `dev.10` 会掉到最下面。
   - **最新/非预发布的那个会排在最前**：把最新版的 `prerelease` 取消（`prerelease:false` + `make_latest:"true"`）后，它立刻置顶并被标为 Latest，`/releases/latest` 也返回它。
@@ -293,6 +299,20 @@ git merge main
 3. 测试歌曲：**`林子汐 - NUNA3.0`**（track id `track-3885ff186af821e6c45ba7d8`，专辑 `NUNA3.0`，49 行歌词）。
 4. **验证脚手架在仓库外**：`B:\RHINE LAB_DEV\_verify\css-diff\`（CDP 驱动 Edge headless 的量测脚本）。仓库里不留任何临时文件。
    **每次改完先跑 `boot-diag.mjs`** —— 它监控未捕获异常/boot 状态。本轮曾因一个 `let` 声明在函数之后（TDZ）导致整个应用启动中断、卡在"正在载入三维专辑架"，而当时所有"只看几个盒子"的脚本全部漏过。
+
+### 下一步：原生重构（2026-10-14 用户决定）
+
+**用户的决定**：现有分支的迭代**暂停**在 `0.7.0-dev.13`（只保留帧率调度，画质与上游一致），**接下来着手用 Rust 重构整个项目**（原作者也打算改用 C++，理由是同一套 WebView2/Three.js 栈的性能与资源占用）。
+
+**重构前的分析与决策材料**：`B:\RHINE LAB_DEV\RUST-REWRITE-ANALYSIS.md`（含实测的性能账本、两套技术选型 A/B/C、以及"网页栈的地板"结论）。**待用户明确四点后才能选型**：① 首要目标（性能/内存启动/单纯换栈）② 时间预期（能否接受数月、是否并行）③ 界面是否允许与现版有差异 ④ 3D 场景是否可简化。
+
+**重构时必须继承的既有约定**：`DEVELOPMENT.md` 第 2/3 节（main 与 rhine-lab 两条线、bug 归属判断）、版本号规则与两套验收标准、以及"用户确认后才推送/发布"。
+
+**今天查出来的两个上游代码问题（重构时自然消失，但要写进交接以免在旧栈里再踩）**：
+1. 关掉 SSAO/景深后，卡片的磨砂玻璃渲染成白色并盖住封面（触发点已定位，根因在渲染管线深处）
+2. 封面图集的内容**只存在于 GPU**（图块走 `copyTextureToTexture`，CPU 数组为空），任何纹理重传都会抹掉它 → 已在 `ArchiveScene.setQuality()` 后调用 `CoverAtlas.repaintAll()` 加固
+
+**性能账本（3440×1440，满画质）**：每帧 GPU 8.74ms（主渲染 6.56 + SSAO 1.19 + 景深 0.88 + 输出 0.11），而 144fps 的预算是 6.94ms → **满帧与满画质在这块显卡上物理上不可能同时成立**；帧率调度把静止占用从 88% 降到约 33%。这两条是"是否值得重构"的核心数据。
 
 ### 工作方式（用户明确要求过）
 
