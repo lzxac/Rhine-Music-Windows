@@ -101,3 +101,13 @@
 - **M1 启动前才切分支**；在此之前仅保留本策略说明。
 
 需求侧的基线、门槛与决策记录见 `specs/rust-rewrite/M0-baseline.md`；可行性分析与选型见仓库外 `RUST-REWRITE-ANALYSIS.md`。
+
+## 10. Rust 工具链（M1 阶段）
+
+> 仅记录当前机器事实与选择理由；**M1 验证通过后再评估是否提升到 `AGENTS.md` §4**（本轮不写入该文件）。
+
+- 本机**没有安装 Visual Studio / MSVC 链接器**（`vswhere`、`link.exe` 均不存在），因此**不使用 `x86_64-pc-windows-msvc`**。
+- 使用 **`x86_64-pc-windows-gnu` 目标**：rustup 自带 `rust-mingw` 组件（含链接器），**自包含、无需 VS**。
+- 工具链：**rustup + stable 1.99.0**，**仅安装 Windows-GNU 目标**（组件：cargo / rust-mingw / rust-std / rustc）。
+- 安装位置 `%USERPROFILE%\.cargo`；新开终端需让 PATH 含 `%USERPROFILE%\.cargo\bin`。
+- Rust 代码位于分支 `rust-port` 的 `rust/` 目录，**不参与**现有 npm / PowerShell 构建链；`rust/target/` 不入库。
