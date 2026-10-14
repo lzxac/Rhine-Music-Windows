@@ -215,7 +215,13 @@ function combineAlbums(albums) {
       const tagged = text(track._common?.album)
       const sourceRoot = track._path && (album._roots ?? [album._root]).find((root) => root && pathIsWithin(root, track._path))
       const singleFile = !!track._singleFile || !folderIsOneRelease || (!tagged && sourceRoot && track._path && path.dirname(track._path) === sourceRoot)
-      const fallbackTitle = text(track._albumFallback) || (singleFile ? track.title : album.title)
+      // An untagged single file is its own album, and its own title tag is the only
+      // real name there is: the stored fallback is the file name, which is what a
+      // viewer reads as "the album title is the file name" even when the file says
+      // otherwise. Everything else keeps the fallback chain as it was.
+      const fallbackTitle = singleFile && !tagged && track.title
+        ? track.title
+        : text(track._albumFallback) || (singleFile ? track.title : album.title)
       const title = tagged || fallbackTitle || track.title || '未命名专辑'
       const key = normalizeAlbumName(title)
       const groupKey = singleFile && !tagged ? `single:${track.id}` : `album:${key}`

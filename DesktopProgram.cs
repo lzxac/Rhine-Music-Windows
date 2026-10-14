@@ -18,15 +18,15 @@ using Microsoft.Web.WebView2.Core;
 [assembly: AssemblyTitle("Rhine Music Desktop")]
 [assembly: AssemblyProduct("Rhine Music")]
 [assembly: AssemblyDescription("Rhine Music independent Windows desktop player")]
-[assembly: AssemblyVersion("0.7.0.12")]
-[assembly: AssemblyFileVersion("0.7.0.12")]
-[assembly: AssemblyInformationalVersion("0.7.0-dev.12")]
+[assembly: AssemblyVersion("0.7.0.13")]
+[assembly: AssemblyFileVersion("0.7.0.13")]
+[assembly: AssemblyInformationalVersion("0.7.0-dev.13")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 Bong712")]
 
 internal static class Program
 {
     private const string ProductName = "Rhine Music";
-    private const string AppVersion = "0.7.0-dev.12";
+    private const string AppVersion = "0.7.0-dev.13";
     private static int startedProcessId;
     private const uint CreateNoWindow = 0x08000000;
     private const uint StartfUseShowWindow = 0x00000001;
@@ -752,8 +752,25 @@ internal sealed class DesktopWindow : Form
         else
         {
             MinimumSize = new Size(960, 640);
-            Size = new Size(1440, 900);
-            WindowState = FormWindowState.Maximized;
+            // Open as a centred 16:9 window rather than maximized, sized FROM the
+            // display: a fixed 1920x1080 would be a fullscreen window on a 1920x1080
+            // screen. About 80% of the working area's height, never taller than
+            // 1920x1080's, and squeezed by the width when the screen is narrow — so
+            // the aspect ratio is always 16:9 and the window is never a screen-filler.
+            // (Starting maximized also made the first restore fall back to Windows'
+            // own default bounds, the top-left corner.)
+            var work = Screen.PrimaryScreen != null
+                ? Screen.PrimaryScreen.WorkingArea
+                : new Rectangle(0, 0, 1920, 1080);
+            var height = Math.Min(1080, (int)(work.Height * 0.8));
+            var width = height * 16 / 9;
+            if (width > work.Width * 0.9)
+            {
+                width = (int)(work.Width * 0.9);
+                height = width * 9 / 16;
+            }
+            Size = new Size(width, height);
+            WindowState = FormWindowState.Normal;
         }
         KeyPreview = true;
         KeyDown += (sender, args) =>

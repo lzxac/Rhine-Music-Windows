@@ -21,7 +21,14 @@
   --stage-scale: 1;
   /* Declared on the stage, not on .music-detail: the lyrics panel is a sibling
      of that section, and a custom property cannot inherit across siblings. */
-  --detail-content-top: 170px;
+  /* The detail pane's first line of text — the album column's "ALBUM 093 /
+     上一张 下一张" row — sits on ONE line with the "← 返回专辑架" link, which is
+     the left-hand corner of the same row. The two rows are not the same height:
+     the link is 22px because of its ESC chip, the overline is 12px, so the column
+     starts half that difference (5px) below the link's own top edge. Both read
+     --detail-top-line, so the two can never drift apart at a breakpoint. */
+  --detail-top-line: 112px;
+  --detail-content-top: calc(var(--detail-top-line) + 5px);
   /* The page margin, on both edges. It was previously written out per element —
      the header used 40/60/25/20 while the back link and the cover caption used
      42/62/27/22, so the two left-hand items sat 2px further out than the brand,
@@ -567,7 +574,13 @@
   margin: 0 8px;
 }
 .music-detail {
-  --detail-content-top: 170px;
+  /* The same shared line as the stage carries. The stage needs it because the
+     lyrics panel is its descendant but not this section's; this section needs it
+     because a custom property resolved here wins for the column and for the back
+     link. The column sits 5px below the link's row top, which is half the
+     difference between the two rows' heights (22px against 12px). */
+  --detail-top-line: 112px;
+  --detail-content-top: calc(var(--detail-top-line) + 5px);
   position: absolute;
   inset: 0;
   z-index: 3;
@@ -576,7 +589,10 @@
 .music-back {
   position: absolute;
   left: var(--page-margin);
-  top: 112px;
+  /* Shares its line with the album column's first row: one number per breakpoint
+     (--detail-top-line) places both, so moving the column cannot leave the link
+     behind. */
+  top: var(--detail-top-line, 112px);
   font-size: 10px;
   pointer-events: auto;
   display: flex;
@@ -1524,17 +1540,19 @@
     font-size: 65px;
   }
   /* Also set on the stage so the lyrics panel, which is a sibling of
-     .music-detail rather than a descendant, inherits the same step. */
-  .music-app,
+     .music-detail rather than a descendant, inherits the same step — written as
+     #stage.music-app because the base declaration of this property sits on that
+     selector, and a bare .music-app would lose to it. */
+  #stage.music-app,
   .music-detail {
-    --detail-content-top: 210px;
+    --detail-top-line: 144px;
+    --detail-content-top: calc(var(--detail-top-line) + 5px);
   }
   .music-detail #album-detail-content {
     bottom: 75px;
     --credits-bottom: 7px;
   }
   .music-back {
-    top: 144px;
     left: var(--page-margin);
     font-size: 12px;
   }
@@ -1665,15 +1683,16 @@
     margin-left: 0;
   }
   .music-back {
-    top: 91px;
     left: var(--page-margin);
   }
   .card-caption {
     left: var(--page-margin);
   }
-  .music-app,
+  /* Written as #stage.music-app for the same reason as the wider step above. */
+  #stage.music-app,
   .music-detail {
-    --detail-content-top: 132px;
+    --detail-top-line: 91px;
+    --detail-content-top: calc(var(--detail-top-line) + 5px);
   }
   .music-detail #album-detail-content {
     right: calc(var(--page-margin) + var(--detail-scrollbar));
@@ -1888,8 +1907,12 @@
   .music-detail {
     bottom: 0;
   }
+  #stage.music-app,
+  .music-detail {
+    --detail-top-line: 87px;
+    --detail-content-top: calc(var(--detail-top-line) + 5px);
+  }
   .music-back {
-    top: 87px;
     left: var(--page-margin);
     font-size: 9px;
     gap: 16px;
@@ -2497,6 +2520,16 @@
   border: 1px solid transparent;
   text-align: left;
 }
+/* That spacer border also puts the card's content 1px right of the album column's
+   own text, which is visible on a 35px title line (measured: song block 749.8
+   against album title 748.8 at 1440x900, and the same 1px at 1920x1080). The two
+   inner boxes are nudged back by exactly that pixel, so the song block, the rule at
+   its foot and the lyric list sit on the album text's left edge. The panel's own
+   right edge is untouched, which is what keeps it on the scrollbar line. */
+.music-lyrics-panel > .lyrics-band,
+.music-lyrics-panel > .lyrics-panel-body {
+  margin-left: -1px;
+}
 .music-lyrics-panel[hidden] {
   display: none !important;
 }
@@ -2557,32 +2590,112 @@
 /* The song playing, in the space the toggle gave up when it moved to the right
    edge. It is taken out of flow and pinned to the top-left of the band, so it
    shares the toggle's row without joining the flex order — the collapsed card
-   can then simply hide it and keep its right-aligned stack unchanged. */
+   can then simply hide it and keep its right-aligned stack unchanged.
+   It carries the album column's own title block: the title takes the album
+   title's type size and the artist the album artist's, with the same gap, so the
+   rule below lands on the album's rule (see --lyrics-band-min) and the two views
+   read as one design. */
 .lyrics-song-info {
   position: absolute;
   left: 0;
   top: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 10px;
   max-width: calc(100% - 200px);
   pointer-events: none;
 }
 .lyrics-song-info[hidden] {
   display: none !important;
 }
-.lyrics-song-info strong {
-  color: var(--ink);
-  font-size: clamp(15px, 1.05vw, 20px);
-  font-weight: 600;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
+/* One line each, and only the lines themselves: written as `> strong` / `> span`
+   so the copies inside a sliding line are NOT matched — matching them gave every copy
+   the artist's font size and the ellipsis, which is what made the song title come out
+   the same size as the artist and truncated a third of the name behind "…".
+   A name wider than its line slides (see .lyrics-sliding) rather than wrapping: the
+   block keeps a fixed height, which is what lets the rule under it stay on the album
+   column's rule, and a long album title no longer pushes that rule down over the card.
+   The static case is a plain ellipsis.
+   The album page's own title and the archive callout's artist share these rules, so
+   one mechanism covers every long name on screen. */
+.lyrics-song-info > strong,
+.lyrics-song-info > span,
+#album-detail-content .album-detail-body > h1 .music-title-main,
+#album-detail-content .detail-artist-name {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.lyrics-song-info span {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
+/* The album page's artist line is a flex row (the name plus an offline badge), so its
+   name needs `min-width: 0` to be allowed to clip at all. */
+#album-detail-content .detail-artist-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* The sliding line: two copies of the text, both travelling the measured distance,
+   so the second copy arrives exactly where the first one started. Each copy keeps its
+   own natural width (no max-width, no ellipsis) or the name would be clipped instead
+   of shown. */
+.lyrics-song-info > .lyrics-sliding,
+#album-detail-content .album-detail-body > h1 .music-title-main.lyrics-sliding,
+#album-detail-content .detail-artist-name.lyrics-sliding {
+  display: flex;
+  gap: 40px;
+  text-overflow: clip;
+}
+.lyrics-song-info .lyrics-slide-copy,
+#album-detail-content .album-detail-body > h1 .music-title-main .lyrics-slide-copy,
+#album-detail-content .detail-artist-name .lyrics-slide-copy {
+  flex: 0 0 auto;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  animation: lyrics-slide var(--lyrics-slide-duration, 14s) linear infinite;
+}
+@keyframes lyrics-slide {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-1 * var(--lyrics-slide-shift, 0px)));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lyrics-song-info .lyrics-slide-copy {
+    animation: none;
+  }
+}
+.lyrics-song-info > strong {
+  color: var(--ink);
+  /* The album column's own title size. It has to be the rule that actually wins
+     over there (`#album-detail-content .album-detail-body > h1` is declared twice;
+     the second one, `clamp(24px, 2.45vw, 39px)`, is the effective one), or the two
+     titles differ by a fraction of a pixel at every width below 1700. */
+  font-size: clamp(24px, 2.45vw, 39px);
+  line-height: 1.22;
+  letter-spacing: -0.6px;
+  font-weight: 600;
+}
+.lyrics-song-info > span {
+  /* The album artist's own colour too: it inherits the ink, it is not muted, and a
+     muted line reads as lighter than the album's. */
+  font-size: 14px;
+}
+/* The album block's own breakpoint steps, for the artist size. Declared here rather
+   than beside the album's rules because this base rule comes later in the sheet: a
+   media step written earlier would lose to it. The title needs no step of its own —
+   it carries the album title's own clamp, which already steps. */
+@media (min-width: 1700px) {
+  .lyrics-song-info > span {
+    font-size: 17px;
+  }
+}
+@media (max-width: 700px) {
+  .lyrics-song-info > span {
+    font-size: 12px;
+  }
 }
 /* Mirror #album-detail-content's box exactly, so the panel replaces the column
    rather than floating over a differently sized area. */
@@ -2601,6 +2714,21 @@
      card, so it lives in one place. */
   --lyrics-padding: 16px 0 18px;
   --lyrics-top-inset: 16px;
+  /* The band's minimum height in the expanded state: the distance from the band's
+     top to the album column's own rule, measured at runtime, so the card's rule
+     (the band's bottom border) sits on the album's. Collapsed, the band is a
+     three-line card and this does not apply. */
+  --lyrics-band-min: 0px;
+}
+/* Expanded, the rule at the band's foot lines up with the album column's rule, so
+   the song block above it can carry the album's type sizes without the two views
+   drifting apart. See --lyrics-band-min. */
+.music-app[data-lyrics-collapsed="false"] .lyrics-band {
+  /* border-box, because the number is a distance between two box edges: with the
+     default content-box the padding and the rule itself would be added on top of
+     it and the rule would land that much too low. */
+  box-sizing: border-box;
+  min-height: var(--lyrics-band-min, 0px);
 }
 .music-app[data-layout="desktop"] .music-lyrics-panel,
 .music-app[data-layout="compact"] .music-lyrics-panel {
@@ -2867,6 +2995,19 @@
   /* The active line is emphasised by a transform; left-anchored origin would make
      it grow to the right, which reads as off-centre. */
   transform-origin: center center;
+}
+/* Centred lyrics take the song block with them: the title and artist sitting on the
+   left while the lines centre reads as two different layouts in one card. Only the
+   block moves — the collapsed card is right-aligned by its band, and this block is
+   hidden in that state.
+   The width cap drops the toggle's 200px from BOTH sides: centred, a block that only
+   kept clear of the right-hand toggle would run under it as soon as it grew (measured:
+   a long name reached the toggle's text with the old `100% - 200px` cap). */
+.music-app .music-lyrics-panel[data-lyrics-align="center"] .lyrics-song-info {
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  max-width: max(140px, calc(100% - 400px));
 }
 /* Compact windows have no room for a right column, so the panel parks itself
    along the bottom edge as a horizontally scrolling band. */

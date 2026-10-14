@@ -53,7 +53,7 @@ assert.ok(!atlasSource.includes('uniform highp sampler2DArray map'), 'cover shad
 assert.ok(musicAppSource.includes('if (!albums.length) $("#music-empty").hidden = false;'), 'the bundled demo-cover entry must remain visible when the local music service is unavailable');
 assert.ok(musicAppSource.includes('id="music-lyrics-panel"'), 'synchronized lyrics must render in the persistent right-hand panel');
 assert.ok(musicAppSource.includes('const hasLyrics = transportActive && lyricLines.length > 0;'), 'the lyrics panel may only appear once a track with real lyric lines is playing');
-assert.ok(musicAppSource.includes('panelElement.hidden = !hasLyrics;'), 'the lyrics panel must hide itself when the current track has no lyrics');
+assert.ok(/panelElement\.hidden = !hasLyrics/.test(musicAppSource), 'the lyrics panel must hide itself when the current track has no lyrics');
 assert.ok(musicAppSource.includes('$("#lyrics-panel-body").hidden = collapsed;'), 'collapsing the lyrics panel must hide its scrolling body');
 assert.ok(musicAppSource.includes('toggle.setAttribute("aria-expanded", String(!collapsed));'), 'the lyrics toggle must expose its expanded state to assistive technology');
 assert.ok(musicAppSource.includes('function centerLyricLine(snap: boolean) {'), 'scrolling lyrics must centre the active line inside its own container');
@@ -90,7 +90,7 @@ assert.ok(musicStyleSource.includes('--lyrics-left: 58%'), 'the lyrics panel mus
 assert.ok(!musicStyleSource.includes('.lyric-list::after'), 'the lyric list must not use head/tail spacers, which push the first lines out of view');
 assert.ok(!musicStyleSource.includes('.music-lyric-dock'), 'the retired lyric dock must not leave layout rules behind');
 assert.ok(musicStyleSource.includes('mask-image: linear-gradient('), 'the lyrics list must fade out at the panel edges');
-assert.ok(musicStyleSource.includes('font-size: clamp(15px, 1.05vw, 20px)'), 'the primary lyric text must remain legible at desktop resolutions');
+assert.ok(musicStyleSource.includes('calc(clamp(15px, 1.05vw, 21px) * var(--lyrics-font-scale, 1))'), 'the collapsed card live line must keep the responsive clamp and the size factor; the lyric lines themselves are covered above');
 assert.ok(musicStyleSource.includes('@media (max-width: 780px)'), 'compact windows need a documented fallback for the lyrics panel');
 assert.ok(!musicStyleSource.includes('.music-app[data-lyrics-visible="true"][data-mode="detail"] #album-detail-content'), 'showing lyrics must not change the album column padding, which shifted the detail page content sideways');
 assert.ok(musicStyleSource.includes('#album-detail-content .album-detail-body'), 'the lyrics panel must hide only the album block it covers, not the whole column');
@@ -122,6 +122,42 @@ assert.ok(musicStyleSource.includes('var(--credits-h) + var(--credits-bottom) + 
 assert.ok(musicAppSource.includes('stage.style.setProperty("--track-reserve"'), 'the reserved row must be measured from the track list at runtime, never written down: the row height steps with the viewport');
 assert.ok(musicAppSource.includes('Math.floor(space / rowHeight)') && musicAppSource.includes('creditsTop - trackRows[0].top'), 'the reserved row must be read off the row grid anchored at the first row, never against the box bottom it is about to change, and never against the track list length');
 assert.ok(musicAppSource.includes('creditsTop - (trackReserve ?? 0)'), 'the panel bottom must be the credits edge less the reserved row, so the list and the card share one line');
+// Browsing the archive must not leave the expanded card drawn over the archive
+// text: the card stands in for the album column, and the archive page has none
+// (measured: 430px of overlap with the callout block). Browsing shows it collapsed
+// without touching the stored preference, so returning to an album restores it.
+// Browsing the archive must not have the card drawn over the archive text: the card
+// stands in for the album column, and the archive page has none (measured: 430px of
+// overlap with the callout block before this). It is hidden there and shown again on
+// the album page, where it is re-measured as it appears.
+assert.ok(/panelElement\.hidden = !hasLyrics \|\| stage\.dataset\.mode === "archive"/.test(musicAppSource), 'the card must be hidden while the archive is showing');
+assert.ok(musicAppSource.includes('function applyLyricsCollapsed()'), 'the card state must be applied from one place, so the boot paint and the toggle cannot disagree');
+assert.ok(/wasHidden !== panelElement.hidden[\s\S]{0,200}requestAnimationFrame\(\(\) => syncLyricsPanelAlignment\(\)\)/.test(musicAppSource), 'the panel must re-measure on the frame it first appears: hidden, its band has no box, so the rule and the list were left at the last values until the next album switch');
+// The lyrics card's song block carries the album column's own type sizes, and its
+// rule is placed on the album column's rule by measuring the distance — a wrapped
+// album title moves that rule, and a written-down height would miss it.
+assert.ok(/\.lyrics-song-info > strong \{[\s\S]{0,340}clamp\(24px, 2\.45vw, 39px\)/.test(musicStyleSource), 'the song title must take the album title size — the album rule that actually wins, not the one it overrides');
+assert.ok(/\.lyrics-song-info > span \{[\s\S]{0,320}font-size: 14px/.test(musicStyleSource), 'the song artist must take the album artist size');
+// The line rules must not match the copies inside a sliding line: matched, every copy
+// took the artist size and the ellipsis, and the song title came out the same size as
+// the artist with a third of its name hidden behind "…".
+assert.ok(/\.lyrics-song-info > strong,\s*\.lyrics-song-info > span,/.test(musicStyleSource), 'the line rules must be scoped to the lines themselves, not the sliding copies');
+assert.ok(/\.lyrics-slide-copy \{[\s\S]{0,200}max-width: none/.test(musicStyleSource), 'a sliding copy must keep its natural width, or the name is clipped instead of shown');
+assert.ok(musicStyleSource.includes('min-height: var(--lyrics-band-min'), 'the lyrics rule must be placed by a measured band height, in the expanded state only');
+assert.ok(musicAppSource.includes('facts.getBoundingClientRect().top - band.getBoundingClientRect().top'), 'that height must be measured against the album facts rule, never written down');
+// A name wider than its line slides instead of wrapping: a second line would push
+// the rule off the album's rule, which is the whole point of the block above.
+assert.ok(musicAppSource.includes('LYRIC_SLIDE_SPEED') || musicAppSource.includes('SLIDE_SPEED'), 'a name wider than its line must slide, and only then be measured for it');
+assert.ok(musicStyleSource.includes('@keyframes lyrics-slide') && musicStyleSource.includes('.lyrics-slide-copy'), 'the slide needs its two copies to loop seamlessly');
+assert.ok(musicStyleSource.includes('#album-detail-content .detail-artist-name'), 'the album page artist line must slide too, or a long artist name pushes the album rule down');
+assert.ok(!musicAppSource.includes('.album-callout .selection-artist'), 'the archive page must be left untouched: its artist is wrapped into spans by the text-motion machinery, and sliding it showed one stale artist on every album');
+assert.ok(musicStyleSource.includes('.album-detail-body > h1 .music-title-main'), 'the album page title must slide too, or a long album name pushes its rule down over the card');
+assert.ok(/data-lyrics-align="center"\] \.lyrics-song-info[\s\S]{0,200}max-width: max\(140px, calc\(100% - 400px\)\)/.test(musicStyleSource), 'a centred song block must keep clear of the toggle on BOTH sides');
+assert.ok(/prefers-reduced-motion[\s\S]{0,200}\.lyrics-slide-copy[\s\S]{0,80}animation: none/.test(musicStyleSource), 'the slide must stop for a viewer who asked for reduced motion');
+// The panel's 1px spacer border must not put the card 1px off the album text's left
+// edge, and centred lyrics must take the song block with them.
+assert.ok(musicStyleSource.includes('margin-left: -1px'), 'the card content must be nudged back onto the album text left edge, cancelling the spacer border');
+assert.ok(/data-lyrics-align="center"\] \.lyrics-song-info[\s\S]{0,160}translateX\(-50%\)/.test(musicStyleSource), 'centred lyrics must centre the song block too');
 // The lyric size control scales the lines by MULTIPLYING the responsive clamp, and
 // the rule must be scoped to the app: a lyric line is a `<button>`, and the app's
 // own `.music-app button { font-size: inherit }` carries two classes, so a bare

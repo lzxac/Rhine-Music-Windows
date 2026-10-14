@@ -521,17 +521,10 @@ if (hostBridge) {
     if (event.button === 0 && !isInteractive(event.target)) sendWindowAction("drag");
   });
 }
-stage.dataset.lyricsCollapsed = String(!!preferences.lyricsCollapsed);
 stage.dataset.lyricsPlaying = "false";
-{
-  const toggle = document.querySelector<HTMLButtonElement>("#lyrics-toggle");
-  const label = document.querySelector<HTMLElement>("#lyrics-toggle-label");
-  if (toggle) {
-    toggle.setAttribute("aria-expanded", String(!preferences.lyricsCollapsed));
-    toggle.setAttribute("aria-label", preferences.lyricsCollapsed ? "展开歌词" : "收起歌词");
-  }
-  if (label) label.textContent = preferences.lyricsCollapsed ? "展开歌词" : "收起歌词";
-}
+// The card's state for the boot paint: browsing the archive at this point, so the
+// collapsed look, without touching the stored preference.
+applyLyricsCollapsed();
 // The panel now exists, so the stored lyric size can be applied before its first
 // paint instead of flashing at the default size.
 applyLyricSize();
@@ -1233,7 +1226,7 @@ function renderDetail() {
   article.innerHTML = `<div class="detail-overline"><span>ALBUM ${String(selected + 1).padStart(3, "0")}</span><div class="detail-album-navigation" role="group" aria-label="切换专辑"><button data-action="prev" aria-label="上一张专辑">↑ 上一张</button><button data-action="next" aria-label="下一张专辑">下一张 ↓</button></div></div>
     <div class="album-detail-scroll">
     <div class="album-detail-body">
-    <h1 title="${esc(a.title)}">${albumTitleMarkup(a.title)}</h1><p class="detail-artist">${esc(a.artist)}${a.offline ? '<span class="offline-badge">目录离线</span>' : ""}</p>
+    <h1 title="${esc(a.title)}">${albumTitleMarkup(a.title)}</h1><p class="detail-artist"><span class="detail-artist-name">${esc(a.artist)}</span>${a.offline ? '<span class="offline-badge">目录离线</span>' : ""}</p>
     <div class="album-facts">${fields.map(([name, value]) => `<div><small>${name}</small><span>${esc(String(value))}</span></div>`).join("")}</div>
     <div class="music-tabs" role="tablist" aria-label="专辑信息"><button role="tab" id="tab-tracks" data-tab="tracks" tabindex="${activeTab === "tracks" ? 0 : -1}" aria-selected="${activeTab === "tracks"}" aria-controls="album-tab-content"><span>01</span> 歌单</button><button role="tab" id="tab-about" data-tab="about" tabindex="${activeTab === "about" ? 0 : -1}" aria-selected="${activeTab === "about"}" aria-controls="album-tab-content"><span>02</span> 专辑介绍</button><i class="music-tab-indicator" aria-hidden="true"></i></div>
     <div id="album-tab-content" role="tabpanel" aria-labelledby="tab-${activeTab}">${activeTab === "tracks" ? trackList(a, discs) : albumAbout(a)}</div>
@@ -1719,12 +1712,13 @@ function syncQueuePanel(force = false) {
   if (nextButton) nextButton.disabled = playerState.currentIndex < 0 || playerState.currentIndex >= playerState.queue.length - 1;
 }
 
-// The panel is expanded by default; collapsing keeps only a slim band with the
-// live line so the album column underneath becomes reachable again.
-function setLyricsCollapsed(collapsed: boolean) {
-  if (preferences.lyricsCollapsed === collapsed) return;
-  preferences.lyricsCollapsed = collapsed;
-  save("rhine-music-preferences", preferences);
+// The card stands in for the album column while a song with lyrics plays, so it
+// has nothing to stand in for while the viewer browses the archive — and being
+// hidden there is what the owner asked for, rather than a collapsed strip over the
+// archive text (that overlap measured 430px at 1440x900). The panel is shown again
+// on the album page, where syncLyricsPanel re-measures it as it appears.
+function applyLyricsCollapsed() {
+  const collapsed = !!preferences.lyricsCollapsed;
   $("#lyrics-panel-body").hidden = collapsed;
   stage.dataset.lyricsCollapsed = String(collapsed);
   const toggle = document.querySelector<HTMLButtonElement>("#lyrics-toggle");
@@ -1734,6 +1728,15 @@ function setLyricsCollapsed(collapsed: boolean) {
   }
   const label = document.querySelector<HTMLElement>("#lyrics-toggle-label");
   if (label) label.textContent = collapsed ? "展开歌词" : "收起歌词";
+}
+
+// The panel is expanded by default; collapsing keeps only a slim band with the
+// live line so the album column underneath becomes reachable again.
+function setLyricsCollapsed(collapsed: boolean) {
+  if (preferences.lyricsCollapsed === collapsed) return;
+  preferences.lyricsCollapsed = collapsed;
+  save("rhine-music-preferences", preferences);
+  applyLyricsCollapsed();
   // Refresh the derived "the album column stands down" flag right away, then
   // re-centre so resuming does not scroll up from wherever the list sat.
   syncLyricsPanel();
@@ -1878,6 +1881,10 @@ let lyricsTitleTop: number | null = null;
 // Same idea for the panel's bottom: only accept a reading taken from a laid-out
 // album column.
 let lyricsBottomInset: number | null = null;
+// How tall the lyrics band has to be for its bottom border — the card's own rule —
+// to land on the album column's rule. Measured (see syncLyricsPanelAlignment); a
+// wrapped album title moves the album's rule and this follows it.
+let lyricsBandMin: number | null = null;
 // The row-band the track list keeps free at its foot. Measured, never written
 // down: the row height steps with the viewport (52px at 1440x900, 66px at
 // 1920x1080). The album column's scroller reads it as an extra bottom margin and
@@ -1989,6 +1996,24 @@ function syncLyricsPanelAlignment() {
   if (lyricsBottomInset !== null) {
     panel.style.setProperty("--lyrics-bottom", `${lyricsBottomInset}px`);
   }
+  // The lyrics card's own rule is the band's bottom border, and it belongs on the
+  // album column's rule — the top border of its facts block — so the song block
+  // above it can carry the album title's type size without the two views' rules
+  // drifting apart. The band is handed the distance from its own top as a minimum
+  // height, which is the same number, because the rule IS its bottom edge. Measured
+  // rather than written down: a wrapped album title moves the album's rule down.
+  const facts = column.querySelector<HTMLElement>(".album-facts");
+  const band = document.querySelector<HTMLElement>("#music-lyrics-panel .lyrics-band");
+  if (measurable(facts) && measurable(band)) {
+    lyricsBandMin = Math.max(
+      0,
+      Math.round(facts.getBoundingClientRect().top - band.getBoundingClientRect().top),
+    );
+  }
+  if (lyricsBandMin !== null) panel.style.setProperty("--lyrics-band-min", `${lyricsBandMin}px`);
+  // The sliding names are sized by the line they sit on, so they are re-measured
+  // with everything else here (window resize included).
+  applyNameSlides();
   // No width cap: the album switcher sits above the panel's top edge, so
   // spanning the column's full width cannot cover it.
 }
@@ -2055,7 +2080,11 @@ function syncLyricsPanel() {
   const transportActive = !!track &&
     (state.transport === "playing" || state.transport === "paused" || state.transport === "loading");
   const hasLyrics = transportActive && lyricLines.length > 0;
-  panelElement.hidden = !hasLyrics;
+  const wasHidden = panelElement.hidden;
+  // Hidden while the archive is showing: the card belongs to the album page (see
+  // applyLyricsCollapsed). Nothing is drawn over the archive text, and the panel
+  // keeps its position for when the album comes back.
+  panelElement.hidden = !hasLyrics || stage.dataset.mode === "archive";
   // The top-nav entry stays available whenever a song is loaded without lyrics.
   status.hidden = !transportActive || lyricLines.length > 0;
   openLyrics.hidden = status.hidden;
@@ -2067,21 +2096,85 @@ function syncLyricsPanel() {
       ? "歌词读取失败"
       : "暂无歌词";
   if (status.textContent !== statusText) status.textContent = statusText;
-  syncLyricsSongInfo(track, !hasLyrics || preferences.lyricsCollapsed);
+  syncLyricsSongInfo(track, !hasLyrics || !!preferences.lyricsCollapsed);
   stage.dataset.lyricsVisible = String(!panelElement.hidden);
+  // The card's own state: the toggle's label has to match what is drawn.
+  applyLyricsCollapsed();
   // While the expanded panel occupies the album column, that column stands down
   // so the two never draw over each other. Collapsing brings the album back.
   stage.dataset.lyricsPlaying = String(!panelElement.hidden && !preferences.lyricsCollapsed);
+  // The panel's own measurements need it laid out: on the first expansion it is
+  // still hidden when loadLyrics() measures (its band has no box, so the rule and
+  // the list above it were left at the last values and only settled on the next
+  // render — measured: the rule sat through the middle of the song block until an
+  // album switch). Re-measure on the frame that shows it.
+  if (wasHidden !== panelElement.hidden && !panelElement.hidden) {
+    requestAnimationFrame(() => syncLyricsPanelAlignment());
+  }
 }
 
 // The song playing, shown in the space the collapse toggle leaves on its left.
 // The text is written as literal text, never markup: track metadata is
 // third-party data.
+// A name wider than the line it sits on slides across instead of wrapping, so the
+// block keeps ONE line and the rule under it stays on the album column's rule (see
+// syncLyricsPanelAlignment for that measurement). Both the overflow and the distance
+// travelled are measured, and the second copy of the text is what makes the loop
+// seamless. A viewer who asked for reduced motion keeps the plain ellipsis.
+//
+// Two places share this: the lyrics card's song title and artist, and the album page's
+// own title and artist line. The archive page is deliberately left alone — its title
+// is laid out by the per-character reel machinery (one reel per line, fitted type) and
+// its artist is wrapped into spans by the text-motion machinery, so a horizontal line
+// does not fit either; the owner kept that page as it is.
+const SLIDE_SPEED = 36; // px per second
+const SLIDE_GAP = 40; // px of blank between the two copies
+const SLIDE_SELECTORS = [
+  "#lyrics-song-title",
+  "#lyrics-song-artist",
+  "#album-detail-content .album-detail-body > h1 .music-title-main",
+  "#album-detail-content .detail-artist-name",
+];
+
+function lyricsReducedMotion() {
+  return preferences.reduced || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function applyNameSlides() {
+  for (const selector of SLIDE_SELECTORS) {
+    const line = document.querySelector<HTMLElement>(selector);
+    if (!line) continue;
+    // Rebuilt from re-rendered content each time: once shadowed by the copies, the
+    // element's own text is the copies' text, so the plain text is kept in a dataset.
+    const shadowed = !!line.querySelector(".lyrics-slide-copy");
+    const text = (shadowed ? line.dataset.slideText : line.textContent) ?? "";
+    line.dataset.slideText = text;
+    line.classList.remove("lyrics-sliding");
+    line.style.removeProperty("--lyrics-slide-shift");
+    line.style.removeProperty("--lyrics-slide-duration");
+    line.textContent = text;
+    if (!text || lyricsReducedMotion()) continue;
+    const available = line.clientWidth;
+    const needed = line.scrollWidth;
+    // `+1` absorbs sub-pixel rounding: a name that only just fits must stay put.
+    if (available <= 0 || needed <= available + 1) continue;
+    const shift = needed + SLIDE_GAP;
+    line.style.setProperty("--lyrics-slide-shift", `${shift}px`);
+    line.style.setProperty("--lyrics-slide-duration", `${(shift / SLIDE_SPEED).toFixed(2)}s`);
+    line.textContent = "";
+    for (let copy = 0; copy < 2; copy += 1) {
+      const span = document.createElement("span");
+      span.className = "lyrics-slide-copy";
+      span.textContent = text;
+      line.append(span);
+    }
+    line.classList.add("lyrics-sliding");
+  }
+}
+
 function syncLyricsSongInfo(track: MusicTrack | null | undefined, hide: boolean) {
   const info = document.querySelector<HTMLElement>("#lyrics-song-info");
   if (!info) return;
-  const title = document.querySelector<HTMLElement>("#lyrics-song-title");
-  const artist = document.querySelector<HTMLElement>("#lyrics-song-artist");
   if (!track || hide) {
     info.hidden = true;
     lyricsSongTrackId = null;
@@ -2090,8 +2183,11 @@ function syncLyricsSongInfo(track: MusicTrack | null | undefined, hide: boolean)
   info.hidden = false;
   if (lyricsSongTrackId === track.id) return;
   lyricsSongTrackId = track.id;
+  const title = document.querySelector<HTMLElement>("#lyrics-song-title");
+  const artist = document.querySelector<HTMLElement>("#lyrics-song-artist");
   if (title) title.textContent = track.title;
   if (artist) artist.textContent = track.artist;
+  applyNameSlides();
 }
 
 function syncLyricClock() {

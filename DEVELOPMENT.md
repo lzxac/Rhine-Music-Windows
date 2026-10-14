@@ -273,6 +273,30 @@ git merge main
   **绝不能拿滚动区当前的底边去算让出行**：那会让让出行反过来影响自己的测量（实测在 0–7px 之间来回、列表仍然切掉半行）。列表短到够不着这条带时只让出一行的高度；窗口矮到装不下两整行时不让行。
   **必须等详情页入场动画结束后再补测一次**：`SurfaceTransition.show()` 现在带完成回调（与 `hide()` 对称），`showMenu` 用它重跑 `syncLyricsPanelAlignment()`。原因：构建页面的那次 render 发生在面板还隐藏时（量不到盒子，按守卫跳过），此后没有任何东西会重跑它 —— 表现为**首次打开专辑时 `--lyrics-top` 停在样式表默认的 170px**，曲目列表也不让行。用真实应用实测（入场结束后不触发任何 resize）：应用自己写出 `--track-reserve: 79px`、`--lyrics-bottom: 199px`、列表底边 701（1440×900）。
   实测（32 首与 3 首各一张 × 三种窗口）：让出 79 / 73 / 103px；共用底边线 y701 / y887 / y1217；列表可见行数 4→3、5→4、10→9。曲目多到撑满列表的专辑，歌词卡底边**上收**到这条线（此前会垂到列表下面最多约 45px、压进制作人员那块字）；曲目少的专辑则**下移**。
+- **专辑详情页首行与「← 返回专辑架」同线（dev.13，2026-10-14 用户要求）**：右侧整块（overline + 大标题 + 发行信息 + 页签 + 曲目表 + 歌词卡）**整体上移**，让「ALBUM 001 / 上一张 下一张」那一行与左边的返回键**落在同一条文字线上**。
+  - 两行**行框高度不同**：返回键那行 22px（ESC 键帽 19px 撑着），overline 那行 12px —— 只对齐外框上边缘的话两行文字仍差 5px。现在按**文字中线**对齐：`--detail-content-top = calc(var(--detail-top-line) + 5px)`，那个 5px 就是两行高度差的一半。实测四档（1024×768 / 1440×900 / 1920×1080 / 2560×1440）两行行框中心差 **0.00px**。
+  - `--detail-top-line` 各档 112 / 144 / 91 / 87px；**.music-back 的 `top` 与 `--detail-content-top` 都读它** —— 不要再给 `.music-back` 写单独的 `top`，否则两行会漂开。
+  - **顺手修掉一个潜伏的优先级 bug**：`--detail-content-top` 的基础声明在 `#stage.music-app`（1-1-0），而断点里写的是裸 `.music-app`（0-1-0）→ **在 stage 上永远不生效**（CDP matched styles 实测：stage 各档都停在 170px，只有 `.music-detail` 跟着 210/132 走）。现在断点写成 `#stage.music-app, .music-detail`。面板 `--lyrics-top` 的 CSS 兜底读的就是这个值（运行时会被实测覆盖，所以此前没有可见症状）。**以后再改跨兄弟的自定义属性，先查一遍这种"基础写 `#stage.music-app`、断点写裸 `.music-app`"的组合。**
+  - **副作用（已知且已实测）**：栏整体上移后曲目列表变高，**大档位下多显示一行**（1920×1080：4 → 5 行）；dev.12 的让行线随之移动 1–5px（701→700、887→892、1217→1222），但**列表可见底边与歌词卡底边仍逐像素同线**；制作人员块与左下角卡片说明**分毫未动**（780 / 960 / 1320）；专辑大标题上移 53–61px，歌词卡顶边同步上抬（1440×900：183 → 130）。
+  - 竖屏**故意不动**：那边 `#album-detail-content` 是 `top: 50%`、返回键 118px（`music-theme-switch.css`），与桌面这套无关。
+  - **同一个 dev.13 里还修了两处（2026-10-14 用户验收后提出）**：
+    1. **点「返回专辑架」歌词卡不收**，展开的卡片直接压在归档页文字上（实测与说明块重叠 430px × 402px）。**用户的最终选择是"专辑架页完全不显示"**（比收起态更干净）：`syncLyricsPanel()` 里 `panelElement.hidden = !hasLyrics || stage.dataset.mode === "archive"`，回到专辑页再显示；**不修改记忆的设置**。DOM 状态由唯一的 `applyLyricsCollapsed()` 统一写（启动首次绘制也走它），按钮文案与画出来的状态不可能不一致。
+    2. **歌词卡展开态的歌名/歌手字号与专辑详情不一致**（15.12/11px vs 35.28/14px）。现在歌名 `clamp(24px, 2.45vw, 39px)`、歌手 14px（≥1700 为 17px、≤700 为 12px），间距照抄专辑标题块的 10px。
+       **那条长横线改为落在专辑「发行信息」块顶边上**：`--lyrics-band-min` = `.album-facts` 顶边 − `.lyrics-band` 顶边，作为展开态 band 的 `min-height`（**必须 `box-sizing: border-box`**，否则 padding+border 会叠上去、横线落到目标下方 25px）。实测差 0.03 / 0.42px。
+       **歌名/歌手放不下时改为横向滚动**（`.lyrics-sliding` + 两份 `.lyrics-slide-copy`，`--lyrics-slide-shift/duration` 由 JS 实测：位移 = 文字宽 + 40px、速度 36px/s），**不能换行**——换行会顶掉横线对齐；`prefers-reduced-motion` 时不滚、退回省略号。
+       **坑：这两个字号的基础规则在样式表末尾，断点镜像必须写在它后面**（写在前面会被基础规则盖掉——实测 ≥1700 的歌手字号一度仍是 14px）。
+       **坑 2（2026-10-14 用户复验发现"略大一丢丢"）**：`#album-detail-content .album-detail-body > h1` 在样式表里**声明了两次**（`clamp(25px, 2.5vw, 39px)` 与靠后的 `clamp(24px, 2.45vw, 39px)`），**生效的是后者**；照抄前者会让歌名在每个 <1700 宽度下都比专辑标题大一丁点（1440 时 36 vs 35.28）。歌词歌手还必须用**墨色**（专辑 `.detail-artist` 没有颜色声明、继承 `--ink`），用 `--muted` 会显得比专辑那边淡。
+       **坑 3（同日复验发现"首次展开横线在歌名歌手中间"）**：**隐藏状态的元素没有盒子** —— `loadLyrics()` 里那次 `syncLyricsPanelAlignment()` 跑在 `syncLyricsPanel()` 把面板显示出来**之前**，于是 `.lyrics-band` 量不到、`--lyrics-band-min` 保持上次的值（首次为 0），横线与歌词整体就停在旧位置，直到下一次 render（例如切专辑）才纠正。现在 `syncLyricsPanel()` 在**面板由隐藏变可见**时补一次 `requestAnimationFrame(syncLyricsPanelAlignment)`。**任何"量隐藏元素"的测量都要先确认它已经在布局里。**
+       **坑 4（同日复验发现"左边界差一丢丢"）**：面板那 1px 透明占位边框（`border: 1px solid transparent`，当初为保持内部几何而保留）会把内容整体推到专辑文字**右边 1px**。现在 `.lyrics-band`、`.lyrics-panel-body` 各加 `margin-left: -1px` 让回这一像素（歌名/歌手/歌词与专辑标题左边界差 0.00px）；**面板右边界不要一起动**，那条线是压着滚动条对齐的。
+       **居中歌词要带上歌名块**：`data-lyrics-align="center"` 下把 `.lyrics-song-info` 也居中（`left: 50%` + `translateX(-50%)` + `text-align: center`），否则会出现"歌名在左、歌词在中间"的错位。
+       **坑 5（2026-10-14 复验：滚动时出现省略号、且歌名与歌手同字号）**：那两条"单行"规则（`display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis`）**选择器写宽了**，连滚动用的 `.lyrics-slide-copy` **副本**一起命中 → 每份副本都被 `max-width: 100%` + 省略号截断，而且副本是 `<span>`、又吃到歌手那条 `font-size: 14px`，于是歌名显示成歌手的字号。**结论：行级规则一律用 `> strong` / `> span` 只作用于两行本身，副本单独声明 `max-width: none; overflow: visible; text-overflow: clip`（字号靠继承）。** 实测强制滚动：两份副本可视宽 = 文字宽（168/168，不截断）、字号 39px（歌手 17px）。
+       **坑 6（同日复验：详情页标题显示文件名）**：`combineAlbums()` 里 `fallbackTitle = text(track._albumFallback) || ...`，而**无标签单文件**的 `_albumFallback` 就是**文件名**（`path.parse(file).name`），优先级高于曲目自己的标题标签 → 详情页标题变成文件名。已改为「无标签单文件优先用 `track.title`」。**分组不受影响**（这类文件本来就走 `single:${track.id}` 独立成组）；`check-music-library` 14/14 仍过。
+       **长名称的肉眼验证工具**：`_verify/longname-fixture/`（20 秒静音 WAV + 同名 .lrc，标题与歌手都超长；用应用自己的扫描器验证过会被正常索引、`browserPlayable: true`）。
+       **滚动机制现在覆盖四处**：歌词卡的歌名/歌手、**专辑页的大标题**（`.album-detail-body > h1 .music-title-main`）、**专辑页的歌手行**（`.detail-artist-name`，新包的一层 span，离线徽标在它外面）——它们共用 `.lyrics-sliding` / `.lyrics-slide-copy` 与 `--lyrics-slide-*`。**专辑架页（`.album-callout`）不要接进来**：标题由 `music-title-reels`（每行一个卷轴 + 逐字动画 + 自适应字号，最多两行）排版，歌手名由 `music-text-motion.ts` 的 `wrappingText` 包成 span，横向滚动与两者都不兼容；用户已确认该页保持原样。
+       **别把 `.album-callout .selection-artist` 加进滚动**：实测会出现"切哪张专辑都显示同一个歌手"——`applyNameSlides()` 在滚动状态下从 `dataset.slideText` 取文本，而那一行的文字是**别的机制在更新**（先替换掉我的副本、我再按缓存重建），于是缓存就把首张专辑的歌手锁死了。**凡是文本由别处更新的元素，都不能用这种"缓存 + 重建"的滚动。**
+       **专辑页大标题必须单行**：它换行会把 `.album-facts` 那条横线挤下去（歌词卡横线是对齐它的），名字过长时标题还会压到歌词卡上。实测注入超长名字：标题仍 43px 一行、两线相差 −0.03px。
+       **居中歌词的歌名块两侧都要让位**：`data-lyrics-align="center"` 下 `max-width` 必须是 `max(140px, calc(100% - 400px))`（右边那 200px 是收起按钮），只用 `100% - 200px` 会让长名字直接压到按钮文字上。
+       **启动窗口默认值**（`DesktopProgram.cs`）：曾以 `WindowState = FormWindowState.Maximized` 启动，导致"还原"落到 Windows 默认位置（左上角）。现改为普通窗口 + `StartPosition = CenterScreen`，尺寸**按显示器算**：工作区高度的 80%（上限 1920×1080），宽度不足时再按宽度收敛，**保持 16:9**——固定的 1920×1080 在 1080 屏上等于又全屏了一次。**改窗口默认大小时别把 `WindowState` 改回 Maximized。**
 - **推送/发布前必须得到用户明确确认**（2026-10-14 用户要求，之前写的"每次交付默认推送"作废）：改完先交给用户试用，**用户说"可以"之后才推送、才发 Release**。用户是产品角色，他要用真实手感验收（本轮的缩放光标问题就是他试用后发现的，而我自己的自动化测试没发现）。
 - **正式版（去掉 `-dev` 的版本）的门槛与决定**（2026-10-14 明确，2026-10-14 二次更新为"两套标准"）：`scripts/version.mjs` 的 `releaseAcceptance()` 硬性要求 PresentMon 的真实显示帧证据，**接受两套标准中的任意一套**：
   1. **上游原生 4K 标准**（原项目自带，保持不变）：`performance-acceptance.json`，渲染缓冲区 3840×2160，6 个场景（cold-switch / warm-switch / rapid-switch / album-detail / theme-switch / large-library）各 ≥60 显示帧、p95 `MsBetweenDisplayChange` ≤16.67ms（见 `BUILD-WINDOWS.md` 的"4K 性能验收"一节）
@@ -308,7 +332,7 @@ git merge main
 
 ### 下一步：原生重构（2026-10-14 用户决定）
 
-**用户的决定**：现有分支的迭代**暂停**在 `0.7.0-dev.12`（帧率调度随 dev.11 交付，`0.7.0-dev.12` 是曲目列表与歌词卡统一底边的布局调整；画质与上游一致），**接下来着手用 Rust 重构整个项目**（原作者也打算改用 C++，理由是同一套 WebView2/Three.js 栈的性能与资源占用）。
+**用户的决定**：现有分支的迭代**暂停**在 `0.7.0-dev.13`（帧率调度随 dev.11 交付，曲目列表与歌词卡统一底边随 dev.12，专辑详情页首行与返回键同线随 dev.13；画质与上游一致），**接下来着手用 Rust 重构整个项目**（原作者也打算改用 C++，理由是同一套 WebView2/Three.js 栈的性能与资源占用）。
 
 **重构前的分析与决策材料**：`<workspace>\RUST-REWRITE-ANALYSIS.md`（含实测的性能账本、两套技术选型 A/B/C、以及"网页栈的地板"结论）。**待用户明确四点后才能选型**：① 首要目标（性能/内存启动/单纯换栈）② 时间预期（能否接受数月、是否并行）③ 界面是否允许与现版有差异 ④ 3D 场景是否可简化。
 
