@@ -14,35 +14,76 @@ const dryRun = process.argv.includes('--dry-run')
 const syncOnly = process.argv.includes('--sync')
 const allocateDev = process.argv.includes('--allocate-dev') || process.argv.includes('--advance')
 const finalize = process.argv.includes('--finalize')
-const modes = [dryRun, syncOnly, allocateDev, finalize].filter(Boolean).length
-if (modes !== 1) throw new Error('Choose one version action: --dry-run, --sync, --allocate-dev, or --finalize.')
+const rollbackIndex = process.argv.indexOf('--rollback-to')
+const rollback = rollbackIndex >= 0
+const rollbackTo = rollbackIndex >= 0 ? process.argv[rollbackIndex + 1] : undefined
+const modes = [dryRun, syncOnly, allocateDev, finalize, rollback].filter(Boolean).length
+if (modes !== 1) throw new Error('Choose one version action: --dry-run, --sync, --allocate-dev, --finalize, or --rollback-to <version>.')
 if (rootIndex >= 0 && !process.argv[rootIndex + 1]) throw new Error('--root requires a project directory.')
 if (outputIndex >= 0 && !process.argv[outputIndex + 1]) throw new Error('--output-dir requires a directory.')
+if (rollbackIndex >= 0 && !rollbackTo) throw new Error('--rollback-to requires a version, for example 0.7.0-dev.10.')
 
 const versionFile = path.join(root, 'version.json')
 const lockFile = path.join(root, 'work', 'package-build.lock')
 const readState = async () => JSON.parse(await readFile(versionFile, 'utf8'))
 const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-async function scanHighestArtifactSequence(baseVersion) {
-  const dirs = [
+function artifactDirectories() {
+  return [
     outputDir,
     path.resolve(root, '..', '..', 'outputs'),
     path.resolve(root, '..', '..', 'work', 'native-renderer', 'artifacts'),
     path.join(root, 'work'),
   ]
-  const pattern = new RegExp(`(?:^|-)${escaped(baseVersion)}-dev\\.(\\d+)(?=$|[.-])`)
-  let highest = 0
-  for (const directory of new Set(dirs)) {
+}
+
+async function scanArtifactNames() {
+  const names = []
+  for (const directory of new Set(artifactDirectories())) {
     let entries
     try { entries = await readdir(directory, { withFileTypes: true }) }
     catch (error) { if (error.code === 'ENOENT') continue; throw error }
-    for (const entry of entries) {
-      const match = entry.name.match(pattern)
-      if (match) highest = Math.max(highest, Number(match[1]))
-    }
+    for (const entry of entries) names.push(entry.name)
+  }
+  return names
+}
+
+async function scanHighestArtifactSequence(baseVersion) {
+  const pattern = new RegExp(`(?:^|-)${escaped(baseVersion)}-dev\\.(\\d+)(?=$|[.-])`)
+  let highest = 0
+  for (const name of await scanArtifactNames()) {
+    const match = name.match(pattern)
+    if (match) highest = Math.max(highest, Number(match[1]))
   }
   return highest
+}
+
+// A rollback must never target a version whose artifacts already exist: reusing that
+// number would let two different builds share one version.
+async function hasArtifactForVersion(version) {
+  const pattern = new RegExp(`(?:^|-)${escaped(version)}(?=$|[.-])`)
+  return (await scanArtifactNames()).some((name) => pattern.test(name))
+}
+
+// Resolves the rollback target against the current state. Only the development line can
+// roll back, the target must stay on the same base version, and it must move backwards.
+function resolveRollbackTarget(state, target) {
+  if (state.channel !== 'dev') throw new Error('Only a development candidate can be rolled back.')
+  const match = String(target ?? '').match(/^(\d+\.\d+\.\d+)-dev\.(\d+)$/)
+  if (!match) {
+    throw new Error(`--rollback-to expects a development version such as ${state.baseVersion}-dev.10, got '${target}'.`)
+  }
+  const [, baseVersion, sequenceText] = match
+  if (baseVersion !== state.baseVersion) {
+    throw new Error(`--rollback-to must stay on base version ${state.baseVersion}, got '${target}'.`)
+  }
+  const sequence = Number(sequenceText)
+  const current = state.version.match(/-dev\.(\d+)$/)
+  const currentSequence = Math.max(Number(state.sequence) || 0, Number(current?.[1]) || 0)
+  if (sequence >= currentSequence) {
+    throw new Error(`--rollback-to only moves backwards: current is ${state.version}, asked for ${target}.`)
+  }
+  return { version: `${baseVersion}-dev.${sequence}`, sequence }
 }
 
 async function acquireLock() {
@@ -264,6 +305,14 @@ try {
     state.sequence = highest + 1
     state.version = `${state.baseVersion}-dev.${state.sequence}`
     action = `allocated unique development package ${state.version}`
+  } else if (rollback) {
+    const target = resolveRollbackTarget(state, rollbackTo)
+    if (await hasArtifactForVersion(target.version)) {
+      throw new Error(`Refusing to reuse ${target.version}: artifacts for it already exist. Remove them first.`)
+    }
+    state.sequence = target.sequence
+    state.version = target.version
+    action = `rolled back to ${target.version}`
   } else {
     state.channel = 'release'
     state.version = state.baseVersion
@@ -271,7 +320,7 @@ try {
   }
   const result = await synchronize(state, {
     saveState: !syncOnly,
-    changelogEntry: syncOnly ? undefined : finalize
+    changelogEntry: syncOnly || rollback ? undefined : finalize
       ? 'Windows desktop release build after verified real-present performance acceptance.'
       : 'Windows desktop development package; 3840×2160 real-present 60 FPS acceptance is pending.',
   })

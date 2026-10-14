@@ -98,7 +98,45 @@ try {
   assert.match(blockedFinalize.stderr, /performance-acceptance\.json/)
   assert.equal(JSON.parse(await readFile(path.join(root, 'version.json'))).version, '0.6.0-dev.8')
   assert.equal(await readFile(path.join(output, `Rhine-Music-Desktop-${initialVersion}.exe`), 'utf8'), 'preserved dev.1')
-  console.log('Version allocation passed: metadata sync, output collision scan, stale-state recovery, concurrent builds, dry run, sync-only, and final-release gate.')
+  // --- rollback-to ---------------------------------------------------------------
+  // 1. A valid rollback rewrites every synchronised metadata location, and the freed
+  //    number is allocated again by the next build.
+  const rolledBack = JSON.parse(run(['--rollback-to', '0.6.0-dev.7']).stdout)
+  assert.equal(rolledBack.version, '0.6.0-dev.7')
+  assert.equal(rolledBack.sequence, 7)
+  assert.equal(JSON.parse(await readFile(path.join(root, 'version.json'))).version, '0.6.0-dev.7')
+  assert.equal(JSON.parse(await readFile(path.join(root, 'package.json'))).version, '0.6.0-dev.7')
+  const rollbackLock = JSON.parse(await readFile(path.join(root, 'package-lock.json')))
+  assert.equal(rollbackLock.version, '0.6.0-dev.7')
+  assert.equal(rollbackLock.packages[''].version, '0.6.0-dev.7')
+  assert.match(await readFile(path.join(root, 'src', 'build-version.ts'), 'utf8'), /0\.6\.0-dev\.7/)
+  assert.match(await readFile(path.join(root, 'DesktopProgram.cs'), 'utf8'), /AssemblyInformationalVersion\("0\.6\.0-dev\.7"\)/)
+  assert.match(await readFile(path.join(root, 'DesktopProgram.cs'), 'utf8'), /AppVersion = "0\.6\.0-dev\.7"/)
+  assert.match(await readFile(path.join(root, 'app.manifest'), 'utf8'), /assemblyIdentity version="0\.6\.0\.7"/)
+  assert.match(await readFile(path.join(root, 'README.md'), 'utf8'), /Windows build: 0\.6\.0-dev\.7/)
+  const reallocated = JSON.parse(run(['--allocate-dev']).stdout)
+  assert.equal(reallocated.version, '0.6.0-dev.8', 'a rolled-back number is allocated again')
+
+  // 2. Rolling forward is refused and leaves the state untouched.
+  const forward = run(['--rollback-to', '0.6.0-dev.9'], 1)
+  assert.match(forward.stderr, /only moves backwards/)
+  assert.equal(JSON.parse(await readFile(path.join(root, 'version.json'))).version, '0.6.0-dev.8')
+
+  // 3. A target whose artifacts already exist is refused (two builds must not share a version).
+  await writeFile(path.join(output, 'Rhine-Music-Desktop-0.6.0-dev.7.exe'), 'already built')
+  const occupied = run(['--rollback-to', '0.6.0-dev.7'], 1)
+  assert.match(occupied.stderr, /artifacts for it already exist/)
+  assert.equal(JSON.parse(await readFile(path.join(root, 'version.json'))).version, '0.6.0-dev.8')
+
+  // 4. Concurrent rollbacks serialize: the second one sees the new state and refuses.
+  const rollbackRace = await Promise.all([
+    start(['--rollback-to', '0.6.0-dev.6']),
+    start(['--rollback-to', '0.6.0-dev.6']),
+  ])
+  assert.equal(rollbackRace.filter((result) => result.code === 0).length, 1, 'exactly one concurrent rollback applies')
+  assert.equal(JSON.parse(await readFile(path.join(root, 'version.json'))).version, '0.6.0-dev.6')
+
+  console.log('Version allocation passed: metadata sync, output collision scan, stale-state recovery, concurrent builds, dry run, sync-only, rollback-to guards, and final-release gate.')
 } finally {
   await rm(temp, { recursive: true, force: true })
 }
