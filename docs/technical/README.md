@@ -111,3 +111,6 @@
 - 工具链：**rustup + stable 1.99.0**，**仅安装 Windows-GNU 目标**（组件：cargo / rust-mingw / rust-std / rustc）。
 - 安装位置 `%USERPROFILE%\.cargo`；新开终端需让 PATH 含 `%USERPROFILE%\.cargo\bin`。
 - Rust 代码位于分支 `rust-port` 的 `rust/` 目录，**不参与**现有 npm / PowerShell 构建链；`rust/target/` 不入库。
+- **GNU 目标除 `rust-mingw` 外，另需 WinLibs 提供 `as.exe`**：rust-mingw 的自包含目录只有 `dlltool.exe` / `ld.exe`，缺汇编器，`dlltool` 调用 `as` 时会报 `CreateProcess` 失败。
+  安装与使用：`winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT`，构建时把其 `mingw64\bin` 加入 PATH。
+  这是 **B2 阶段唯一新增的系统级依赖**（记录于 M1/B2 期间）。
