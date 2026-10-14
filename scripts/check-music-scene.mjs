@@ -52,10 +52,10 @@ assert.ok(atlasSource.includes('copyTextureToTexture'), 'cover updates must copy
 assert.ok(!atlasSource.includes('uniform highp sampler2DArray map'), 'cover shader must use Three.js standard 2D texture sampling');
 assert.ok(musicAppSource.includes('if (!albums.length) $("#music-empty").hidden = false;'), 'the bundled demo-cover entry must remain visible when the local music service is unavailable');
 assert.ok(musicAppSource.includes('id="music-lyrics-panel"'), 'synchronized lyrics must render in the persistent right-hand panel');
-assert.ok(musicAppSource.includes('const hasLyrics = transportActive && lyricLines.length > 0;'), 'the lyrics panel may only appear once a track with real lyric lines is playing');
+assert.ok(musicAppSource.includes('const hasLyrics = !!track && lyricLines.length > 0;'), 'the lyrics card follows the track\'s lyrics, not the transport: a stopped track with lyrics can be read');
 assert.ok(/panelElement\.hidden = !hasLyrics/.test(musicAppSource), 'the lyrics panel must hide itself when the current track has no lyrics');
 assert.ok(musicAppSource.includes('$("#lyrics-panel-body").hidden = collapsed;'), 'collapsing the lyrics panel must hide its scrolling body');
-assert.ok(musicAppSource.includes('toggle.setAttribute("aria-expanded", String(!collapsed));'), 'the lyrics toggle must expose its expanded state to assistive technology');
+assert.ok(musicAppSource.includes('openLyrics.setAttribute("aria-expanded", String(!panelElement.hidden));'), 'the 词 button must carry the CARD state (on screen or not), not the stored preference, or it goes yellow with nothing to show');
 assert.ok(musicAppSource.includes('function centerLyricLine(snap: boolean) {'), 'scrolling lyrics must centre the active line inside its own container');
 assert.ok(musicAppSource.includes('list.scrollTop = start + (target - start) * eased;'), 'the lyric follow must animate the list scroll itself so moves cannot stack');
 assert.ok(musicAppSource.includes('function holdLyricFollow()'), 'a manual lyric scroll must be able to defer the automatic centring');
@@ -130,7 +130,7 @@ assert.ok(musicAppSource.includes('creditsTop - (trackReserve ?? 0)'), 'the pane
 // stands in for the album column, and the archive page has none (measured: 430px of
 // overlap with the callout block before this). It is hidden there and shown again on
 // the album page, where it is re-measured as it appears.
-assert.ok(/panelElement\.hidden = !hasLyrics \|\| stage\.dataset\.mode === "archive"/.test(musicAppSource), 'the card must be hidden while the archive is showing');
+assert.ok(/panelElement\.hidden = !hasLyrics \|\|[\s\S]{0,40}stage\.dataset\.mode === "archive"/.test(musicAppSource), 'the card must be hidden while the archive is showing');
 assert.ok(musicAppSource.includes('function applyLyricsCollapsed()'), 'the card state must be applied from one place, so the boot paint and the toggle cannot disagree');
 assert.ok(/wasHidden !== panelElement.hidden[\s\S]{0,200}requestAnimationFrame\(\(\) => syncLyricsPanelAlignment\(\)\)/.test(musicAppSource), 'the panel must re-measure on the frame it first appears: hidden, its band has no box, so the rule and the list were left at the last values until the next album switch');
 // The lyrics card's song block carries the album column's own type sizes, and its

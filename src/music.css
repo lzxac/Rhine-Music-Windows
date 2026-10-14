@@ -98,11 +98,19 @@
   visibility: hidden;
   pointer-events: none;
 }
-.music-app button:focus-visible,
-.music-app a:focus-visible,
-.music-app input:focus-visible,
-.music-app textarea:focus-visible,
-.music-app select:focus-visible {
+/* Until the first real input, nothing shows a focus ring at all — the browser's own
+   included. The boot sequence focuses the skip button and then 打开专辑 by itself, and
+   Chromium rings a programmatic focus, so gating only this rule left the browser's
+   outline showing from the moment the program opened. */
+.music-app:not([data-input="1"]) :is(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: none;
+}
+/* Focus rings wait for that first real input (the markInput listeners in music-app.ts). */
+.music-app[data-input="1"] button:focus-visible,
+.music-app[data-input="1"] a:focus-visible,
+.music-app[data-input="1"] input:focus-visible,
+.music-app[data-input="1"] textarea:focus-visible,
+.music-app[data-input="1"] select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 4px;
 }
@@ -3008,6 +3016,84 @@
   transform: translateX(-50%);
   text-align: center;
   max-width: max(140px, calc(100% - 400px));
+}
+/* The transport controls, sitting in the row the track list gives up under itself: the
+   band the reservation keeps free. They live in the detail section rather than in the
+   album column's markup, because that content is rebuilt with innerHTML for every album
+   and would throw away the listeners on the player buttons. The box is measured (see
+   syncLyricsPanelAlignment) from the column's rect and the credits line it sits above,
+   so the row, the reservation and dev.12's shared bottom line cannot disagree; the
+   height IS the reservation. It sits outside the lyrics panel, so it stays put whether
+   the card is open or closed, and the whole detail section is hidden while the archive
+   is showing, so browsing has no transport row. */
+.detail-transport {
+  position: absolute;
+  z-index: 7;
+  left: var(--transport-left, 58%);
+  right: var(--transport-right, 0px);
+  bottom: var(--transport-bottom, 52px);
+  height: var(--track-reserve, 0px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  pointer-events: auto;
+}
+/* The controls are a 1fr/auto/1fr grid, so the PLAY button is the row's centre point and
+   the two beside it hang symmetrically off it. Centring the group instead (flex
+   `justify-content: center`) put the play button left of centre by half the stop
+   button's width, so the row read as off-centre and moved whenever a button's width
+   changed. The status line sits above the group and never moves it: the group is pinned
+   to the foot of the band. */
+.detail-transport-controls {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  width: 100%;
+}
+.detail-transport-controls > #transport-lyrics-open {
+  justify-self: end;
+  margin-right: 22px;
+}
+.detail-transport-controls > #play-pause {
+  justify-self: center;
+}
+.detail-transport-controls > #stop-playback {
+  justify-self: start;
+  margin-left: 22px;
+}
+/* Holding the card open keeps the 词 button in its hover colour, so the control bar says
+   which of the two views is showing; closing it goes back to the default ink. The state
+   comes from the card actually being on screen (see syncLyricsPanel), not from the
+   stored preference, or it would go yellow with nothing to show. */
+.detail-transport #transport-lyrics-open[aria-expanded="true"] {
+  color: var(--accent);
+  opacity: 1;
+}
+/* The current track's name button is still what the transport writes into, so it stays in
+   the DOM and is simply not shown — the owner asked for the row to be 词 / play / stop. */
+.detail-transport #transport-track {
+  display: none;
+}
+/* Focus rings wait for the first real input (the markInput listeners in music-app.ts):
+   opening the detail view focuses its own content, which Chromium treats as keyboard
+   focus and rings — a ring nobody asked for on a fresh launch. The ring belongs on the
+   whole row, like the hover band and the jump pulse do: drawn on the play button it
+   stopped 71px short of the row's own rule. It is drawn INSIDE the row, because an
+   outline sits outside its element's box and 4px out of a row in a scroller is clipped
+   top and bottom, and -2px keeps it clear of the track number at the row's left edge. */
+.music-app[data-input="1"] #album-detail-content .track-item:has(.track-row:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.music-app[data-input="1"] #album-detail-content .track-item:has(.track-row:focus-visible) .track-row {
+  outline: none;
+}
+/* Portrait piles the column along the bottom edge with no track-list row to sit in; that
+   layout is being reworked on its own, so the row stands down there for now. */
+.music-app[data-layout="portrait"] .detail-transport {
+  display: none;
 }
 /* Compact windows have no room for a right column, so the panel parks itself
    along the bottom edge as a horizontally scrolling band. */

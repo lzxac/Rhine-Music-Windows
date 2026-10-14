@@ -353,6 +353,15 @@ git merge main
 
 ### 下一步
 
+- **播放控制搬进预留带 + 歌词按钮当开关（dev.14，2026-10-15，用户要求）**：顶栏的 `歌名／暂无歌词·歌词／播放·停止` 整组搬进 dev.12 预留的那条带（曲目表让出来的一行），**居中**；「歌词」按钮改为**常驻**并作为歌词卡唯一开关（单击展开、再单击关闭＝卡片完全不显示）；展开态卡片里重复的"收起歌词"按钮删除，只留字号与对齐。
+  - **实现要点：控制行放在 `#music-detail` 里，不要放进 `#album-detail-content`**——后者每次换专辑都会 `innerHTML` 重建，会销毁播放按钮上的监听器。它作为 `.detail-transport` 与 `.music-back`、`#album-detail-content` 平级。
+  - **位置全部实测**：`--transport-left/right/bottom` 由 `syncLyricsPanelAlignment()` 从专辑栏的 rect 与制作人员块顶边算出，高度直接用 `--track-reserve` —— 所以控制行、预留带、以及 dev.12 的共用底线三者不可能不同步。实测：控制行 `t=700, b=780` 正好等于「列表可见底边 700 / 制作人员块顶 780」，水平中心与专辑栏中心差 0.1px。
+  - **收起＝关闭**：`panelElement.hidden = !hasLyrics || collapsed || 归档页`；因此展开/关闭就等于"专辑详情 ↔ 歌词"的切换（`data-lyrics-playing` 随之为 false，专辑正文恢复 visible）。
+  - **「歌词」按钮的旧逻辑**是 `openLyrics.hidden = status.hidden`（只在**没有**歌词时出现，有歌词反而消失、点了还是空操作）——现已改为 `!transportActive`（有歌曲在播放/暂停就常驻）。
+  - **别把控制行放进专辑栏**：专辑架页没有专辑栏，而 `.music-detail` 在专辑架页是 hidden 的 → 控制行自然不显示（用户确认专辑架页不需要它）。
+  - 竖屏/窄窗口**暂不处理**：`.music-app[data-layout="portrait"] .detail-transport { display: none }`（那边是另一套布局，用户说以后一起修）。
+  - **遗留小尾巴**：`case "lyrics-toggle"`（旧卡片按钮的 action）现在已无对应元素，属死代码；检查脚本里还断言它存在，下次清理时一并处理。
+
 用户说"还有东西要加"，**尚未说明内容**，等他提。已知他关注的方向：显示效果、录屏观感。
 
 **之前约定留到后续的**：专辑信息自动收纳、背景虚化、逐字（卡拉OK）歌词。

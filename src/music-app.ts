@@ -365,7 +365,6 @@ stage.innerHTML = `
       <button data-action="queue" aria-label="播放队列">${icons.queue}<span>队列</span><small id="queue-count">0</small></button>
       <div class="theme-switch" role="group" aria-label="主题">${(["day", "dusk", "night"] as Theme[]).map((t) => `<button data-theme="${t}" title="${themeNames[t]}主题" aria-label="${themeNames[t]}主题" aria-pressed="${preferences.theme === t}"><i class="theme-dot ${t}"></i><span>${themeNames[t]}</span></button>`).join("")}</div>
       <button data-action="settings" class="icon-button" aria-label="播放与画质设置">${icons.settings}</button>
-      <div class="minimal-transport" role="group" aria-label="音乐播放"><button type="button" data-action="locate-playing" id="transport-track" class="transport-track" aria-label="定位当前歌曲" aria-hidden="true" disabled><span id="transport-track-label"></span></button><span id="transport-lyric-status" class="transport-lyric-status" role="status" aria-live="polite" hidden></span><button type="button" id="transport-lyrics-open" class="transport-lyrics-open" data-action="lyrics-panel" hidden>歌词</button><button data-action="play-pause" id="play-pause" aria-label="播放" aria-pressed="false"><span class="transport-glyph transport-play" aria-hidden="true">${icons.play}</span><span class="transport-glyph transport-pause" aria-hidden="true">${icons.pause}</span></button><button data-action="stop" id="stop-playback" aria-label="停止">${icons.stop}</button></div>
       ${hostBridge ? `<div class="window-controls" role="group" aria-label="窗口控制"><button type="button" data-window="min" aria-label="最小化窗口">${icons.windowMin}</button><button type="button" data-window="max" aria-label="最大化或还原窗口">${icons.windowMax}</button><button type="button" data-window="close" class="window-close" aria-label="关闭窗口">${icons.windowClose}</button></div>` : ""}
     </nav>
   </header>
@@ -373,7 +372,6 @@ stage.innerHTML = `
     <div class="lyrics-band">
       <div id="lyrics-song-info" class="lyrics-song-info" hidden><strong id="lyrics-song-title"></strong><span id="lyrics-song-artist"></span></div>
       <div class="lyrics-band-controls">
-        <button type="button" id="lyrics-toggle" class="lyrics-toggle" data-action="lyrics-toggle" aria-expanded="true" aria-controls="lyrics-panel-body" aria-label="收起歌词"><span class="lyrics-toggle-glyph" aria-hidden="true">›</span><span id="lyrics-toggle-label">收起歌词</span></button>
         <div class="lyrics-size" role="group" aria-label="歌词字号">
           <button type="button" id="lyrics-size-down" data-action="lyrics-size-down" aria-label="缩小歌词字号" title="缩小歌词字号">A－</button>
           <button type="button" id="lyrics-size-up" data-action="lyrics-size-up" aria-label="放大歌词字号" title="放大歌词字号">A＋</button>
@@ -407,6 +405,7 @@ stage.innerHTML = `
   </section>
   <section id="music-detail" class="music-detail" aria-label="专辑详情" hidden>
     <button class="music-back" data-action="back">← 返回专辑架 <kbd>ESC</kbd></button>
+    <div class="minimal-transport detail-transport" role="group" aria-label="音乐播放"><span id="transport-lyric-status" class="transport-lyric-status" role="status" aria-live="polite" hidden></span><div class="detail-transport-controls"><button type="button" data-action="locate-playing" id="transport-track" class="transport-track" aria-label="定位当前歌曲" aria-hidden="true" disabled><span id="transport-track-label"></span></button><button type="button" id="transport-lyrics-open" class="transport-lyrics-open" data-action="lyrics-panel" aria-expanded="false">词</button><button data-action="play-pause" id="play-pause" aria-label="播放" aria-pressed="false"><span class="transport-glyph transport-play" aria-hidden="true">${icons.play}</span><span class="transport-glyph transport-pause" aria-hidden="true">${icons.pause}</span></button><button data-action="stop" id="stop-playback" aria-label="停止">${icons.stop}</button></div></div>
     <div class="card-caption"><span id="detail-card-id"></span><small>拖动卡片，查看完整封面</small></div>
     <article id="album-detail-content" tabindex="-1"></article>
   </section>
@@ -522,6 +521,16 @@ if (hostBridge) {
   });
 }
 stage.dataset.lyricsPlaying = "false";
+// Nothing shows a focus ring until the viewer has actually pressed a key or clicked:
+// opening the detail view focuses its own content, which Chromium treats as keyboard
+// focus and rings — a ring nobody asked for on a fresh launch.
+{
+  const markInput = () => {
+    stage.dataset.input = "1";
+  };
+  window.addEventListener("keydown", markInput, { once: true, capture: true });
+  window.addEventListener("pointerdown", markInput, { once: true, capture: true });
+}
 // The card's state for the boot paint: browsing the archive at this point, so the
 // collapsed look, without touching the stored preference.
 applyLyricsCollapsed();
@@ -1721,13 +1730,6 @@ function applyLyricsCollapsed() {
   const collapsed = !!preferences.lyricsCollapsed;
   $("#lyrics-panel-body").hidden = collapsed;
   stage.dataset.lyricsCollapsed = String(collapsed);
-  const toggle = document.querySelector<HTMLButtonElement>("#lyrics-toggle");
-  if (toggle) {
-    toggle.setAttribute("aria-expanded", String(!collapsed));
-    toggle.setAttribute("aria-label", collapsed ? "展开歌词" : "收起歌词");
-  }
-  const label = document.querySelector<HTMLElement>("#lyrics-toggle-label");
-  if (label) label.textContent = collapsed ? "展开歌词" : "收起歌词";
 }
 
 // The panel is expanded by default; collapsing keeps only a slim band with the
@@ -2011,6 +2013,17 @@ function syncLyricsPanelAlignment() {
     );
   }
   if (lyricsBandMin !== null) panel.style.setProperty("--lyrics-band-min", `${lyricsBandMin}px`);
+  // The transport row's box: the column's own left and right edges, and the credits
+  // line it sits above. Measured, so it follows the responsive column and the reserved
+  // row without a second set of numbers to keep in step.
+  const transport = document.querySelector<HTMLElement>(".detail-transport");
+  if (transport && measurable(column) && creditsTop !== null) {
+    const columnBox = column.getBoundingClientRect();
+    const stageWidth = stage.clientWidth;
+    transport.style.setProperty("--transport-left", `${Math.round(columnBox.left)}px`);
+    transport.style.setProperty("--transport-right", `${Math.round(stageWidth - columnBox.right)}px`);
+    transport.style.setProperty("--transport-bottom", `${Math.round(stageHeight - creditsTop)}px`);
+  }
   // The sliding names are sized by the line they sit on, so they are re-measured
   // with everything else here (window resize included).
   applyNameSlides();
@@ -2079,15 +2092,27 @@ function syncLyricsPanel() {
   const track = state?.currentTrack;
   const transportActive = !!track &&
     (state.transport === "playing" || state.transport === "paused" || state.transport === "loading");
-  const hasLyrics = transportActive && lyricLines.length > 0;
+  // Relaxed on the owner's call: the card is about the track's LYRICS, not about the
+  // transport running, so a stopped track with lyrics can still be read (its follow
+  // clock simply does not advance until it plays again). Stopping still closes it —
+  // see the "stop" action — and the 词 button reopens it whenever there are lyrics.
+  const hasLyrics = !!track && lyricLines.length > 0;
+  const collapsed = !!preferences.lyricsCollapsed;
   const wasHidden = panelElement.hidden;
-  // Hidden while the archive is showing: the card belongs to the album page (see
-  // applyLyricsCollapsed). Nothing is drawn over the archive text, and the panel
-  // keeps its position for when the album comes back.
-  panelElement.hidden = !hasLyrics || stage.dataset.mode === "archive";
-  // The top-nav entry stays available whenever a song is loaded without lyrics.
+  // Collapsed means CLOSED: the card is not drawn at all and the album column comes
+  // back, which is the switch between the album page and the lyrics page. Browsing the
+  // archive hides it too — the card belongs to the album page — and the panel keeps its
+  // measurements for when it comes back.
+  panelElement.hidden = !hasLyrics || collapsed || stage.dataset.mode === "archive";
+  // The status line speaks only when there is nothing else to show.
   status.hidden = !transportActive || lyricLines.length > 0;
-  openLyrics.hidden = status.hidden;
+  // The 词 button carries the state of the CARD, not of the stored preference: it goes
+  // to the hover colour only while the card is actually on screen, and its label says
+  // what a click would do. Colouring it from the preference made it go yellow for a
+  // track with no lyrics, or with the transport stopped, where there is nothing to
+  // switch to and the click cannot change anything.
+  openLyrics.setAttribute("aria-expanded", String(!panelElement.hidden));
+  openLyrics.setAttribute("aria-label", panelElement.hidden ? "展开歌词" : "收起歌词");
   const panelStatus = document.querySelector<HTMLElement>("#lyrics-panel-status");
   if (panelStatus) panelStatus.textContent = lyricStateText;
   const statusText = lyricStateText.startsWith("正在查找")
@@ -2102,7 +2127,7 @@ function syncLyricsPanel() {
   applyLyricsCollapsed();
   // While the expanded panel occupies the album column, that column stands down
   // so the two never draw over each other. Collapsing brings the album back.
-  stage.dataset.lyricsPlaying = String(!panelElement.hidden && !preferences.lyricsCollapsed);
+  stage.dataset.lyricsPlaying = String(!panelElement.hidden);
   // The panel's own measurements need it laid out: on the first expansion it is
   // still hidden when loadLyrics() measures (its band has no box, so the rule and
   // the list above it were left at the last values and only settled on the next
@@ -2428,10 +2453,19 @@ document.addEventListener("click", (e) => {
     case "lyrics-align":
       stepLyricAlign();
       break;
-    case "lyrics-panel":
-      // The lyrics panel is persistent; this entry only brings it back into view.
-      setLyricsCollapsed(false);
+    case "lyrics-panel": {
+      // The transport row's 词 button switches between the album page and the lyrics
+      // page. It only acts where the card can actually be shown — a track in play or
+      // paused WITH lyric lines — because anywhere else the click would silently flip
+      // the stored preference and the card would come back collapsed later.
+      const state = playerState;
+      const track = state?.currentTrack;
+      // Only the lyrics matter now: a stopped track can be read too (see hasLyrics in
+      // syncLyricsPanel), and the stop button is what closes it.
+      if (!track || lyricLines.length === 0) break;
+      setLyricsCollapsed(!preferences.lyricsCollapsed);
       break;
+    }
     case "queue-panel":
       openPanel("queue");
       break;
@@ -2494,6 +2528,11 @@ document.addEventListener("click", (e) => {
       break;
     case "stop":
       player.stop();
+      // Stopping also closes the card, even though the relaxed rule above would let a
+      // stopped track keep its lyrics open: the owner wanted "stop" to always mean the
+      // lyrics view is gone, while the 词 button brings it back whenever the track has
+      // lyrics.
+      setLyricsCollapsed(true);
       break;
     case "scan":
       void scan(true);
