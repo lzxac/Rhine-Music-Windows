@@ -1,0 +1,13 @@
+[package]
+name = "rhine-desktop"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# B1: 仅用于验证窗口技术栈（winit）。不参与现有 npm/PowerShell 构建链，
+# 也不读写 version.json / src / dist / public。
+[dependencies]
+winit = "0.30"
+
+[profile.release]
+opt-level = 2
