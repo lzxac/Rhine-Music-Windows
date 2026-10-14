@@ -79,10 +79,10 @@
 
 **门槛外（历史遗留，不计入完整校验门槛）**
 
-| 脚本 | 原因 | 依据 |
-|---|---|---|
-| `check-music-scene` | `CoverAtlas.writePageTile` 无 canvas 实现，在无浏览器环境下抛错 | CHANGELOG dev.58 / dev.1 条目 |
-| `check-music-launcher`（2 个用例，其余通过） | ① `Finder command changes cwd safely…`：依赖 macOS 专用文件 `启动音乐播放器.command`，在 Windows 必然 `ENOENT`（跨平台问题）；② `health endpoint is read-only…`：`ERR_INVALID_ARG_TYPE: paths[0] must be of type string`，涉及 Node 版本兼容/用例传参 | 历史遗留，与端口改动无关；需独立任务处理，不在本轮修 |
+| 脚本 | 原因 | 依据 | 处理状态 |
+|---|---|---|---|
+| `check-music-scene` | `CoverAtlas.writePageTile` 无 canvas 实现，在无浏览器环境下抛错 | CHANGELOG dev.58 / dev.1 条目 | 历史遗留，未排期 |
+| `check-music-launcher`（2 个用例，其余通过） | ① `Finder command changes cwd safely…`：依赖 macOS 专用文件 `启动音乐播放器.command`，在 Windows 必然 `ENOENT`（跨平台问题，涉及 CI 策略，当前无 CI）；② `health endpoint is read-only…`：`ERR_INVALID_ARG_TYPE: paths[0] must be of type string`，涉及 Node 版本兼容/用例传参 | 历史遗留，与端口改动无关 | 另立任务，未排期 |
 
 非检查类工具（不参与校验）：`analyze-reference-audio.mjs`（音频分析）、`sanitize_blend_browser_metadata.py`（Python 工具，环境未验证）。
 
