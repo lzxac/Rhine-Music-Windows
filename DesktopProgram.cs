@@ -103,7 +103,7 @@ internal static class Program
                 Directory.CreateDirectory(DataRoot);
                 SetDllDirectoryW(AppRoot);
 
-                var ports = new[] { 5175, 5176, 5177, 5178, 5179, 5180, 5181, 5182, 5183, 5184, 5173 };
+                var ports = new[] { 5175, 5176, 5177, 5178, 5179, 5180, 5181, 5182, 5183, 5184 };
                 var states = new ProbeState[ports.Length];
                 for (var index = 0; index < ports.Length; index++)
                 {
@@ -120,7 +120,7 @@ internal static class Program
                 var free = Array.IndexOf(states, ProbeState.Free);
                 if (free < 0)
                 {
-                    throw new InvalidOperationException("没有可用的本机端口（5175–5184、5173）。请关闭占用这些端口的程序后再启动。");
+                    throw new InvalidOperationException("没有可用的本机端口（5175–5184）。请关闭占用这些端口的程序后再启动。");
                 }
 
                 var port = ports[free];

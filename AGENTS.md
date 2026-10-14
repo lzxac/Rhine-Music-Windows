@@ -99,7 +99,7 @@ Agent 开始任务前应自行判断风险级别，并在输出中说明。
 | 测试命令 | `npm run check:music`（串联 13 项检查）、`npm run check:content`、`check:viewport`、`check:version`；**无 CI** | 已核对 · 依据：`package.json` scripts；仓库无 `.github` |
 | 启动命令 | 开发 `npm run dev`（vite，127.0.0.1）；本机音乐服务 `npm run music`；桌面双击 EXE | 已核对 · 依据：`package.json` |
 | 入口文件 | `index.html` → `src/main.ts` → `src/music-app.ts`（默认）或 `src/archive-main.ts`（`?original=1`）；桌面 `DesktopProgram.cs`；服务 `scripts/music-server.mjs` | 已核对 · 依据：`index.html`、源码导入链 |
-| 监听端口 | **待处理冲突**（启动器取 5175–5184 与 5173；`music-server.mjs` 默认 5173；vite 默认 5173）——最终取值需在 technical 文档中定 | 待处理 · 依据：`DesktopProgram.cs:106`、`music-server.mjs:246` |
+| 监听端口 | 5175–5184（桌面启动器按序探测）；5173（vite 与服务默认；二者互不重叠，可并存） | 已实测 · 依据：`DesktopProgram.cs:106`、`music-server.mjs:246` |
 | 外部依赖 | Node 运行时；WebView2 Evergreen Runtime；.NET Framework 4.8 编译器；WebView2 SDK 程序集与许可（`sdk/lib`）；npm 运行时依赖 4 个 | 已实测 · 依据：`package.json`、`BUILD-WINDOWS.md`、`sdk/lib` 清单 |
 | 配置根键 | `version.json`（baseVersion/channel/sequence/version/dataSchema）；偏好键 `localStorage: rhine-music-preferences`；数据根 `MUSIC_DATA_DIR` 或 `%LOCALAPPDATA%\Rhine Music\music-data-v3` | 已核对 · 依据：`version.json`、`src/music-app.ts`、`DesktopProgram.cs` |
 | 代码生成器命令 | `node scripts/version.mjs --allocate-dev\|--sync\|--dry-run\|--finalize`；`node scripts/export-records.mjs`；`node scripts/build-pwa.mjs`；`powershell scripts/build-app-icon.ps1` | 已实测 · 依据：脚本本体与 `package.json` |
