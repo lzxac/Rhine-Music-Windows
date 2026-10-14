@@ -116,7 +116,7 @@ rhine-lab   你自己的功能开发：歌词改版、你想要的任何新东�
 
 ### 7.2 提交身份
 
-提交记录里用的是你的 GitHub 隐私邮箱（`112012156+izacx@users.noreply.github.com`），不会暴露你的真实邮箱。这是好事，别改。
+提交记录里用的是你的 GitHub 隐私邮箱（`<your-noreply-email>`），不会暴露你的真实邮箱。这是好事，别改。
 
 ---
 
@@ -255,7 +255,7 @@ git merge main
 - 版本号 **`0.7.0-dev.4`**，由 `node scripts/version.mjs --allocate-dev` 分配，自动同步到 7 处（`version.json`、`package.json`、`package-lock.json`、`README.md`、`src/build-version.ts`、`app.manifest`、`DesktopProgram.cs`）。**不要手改版本号。**
   - 该命令会在 `CHANGELOG.md` 末尾插入一条占位条目，**必须手动补全内容**。README 会引用 `RELEASE_NOTES_<版本>.md`，**该文件要自己写**。
   - 版本的划分：`0.7.0-dev.3` = 纯显示修复；`0.7.0-dev.4` = 在 dev.3 之上新增歌词字号与对齐两个开关。两个条目**分开写**，别把功能塞进修复条目。
-- **打包 EXE 可用**（2026-10-13）：`node scripts/…` 不用管，直接跑 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -WebView2Dir <repo>\sdk\lib -RuntimeTemplateDir <repo>\work\runtime-template -OutputDirectory "B:\RHINE LAB_DEV\outputs"`。产物在 `B:\RHINE LAB_DEV\outputs\`（README/构建文档写的"工作区根目录 outputs"在本机会解析到 `B:\`，所以显式传 `-OutputDirectory`）。`work\runtime-template\NODE-LICENSE.txt` 是本机 Node 安装缺失的许可文件，已在 .gitignore 的 work/ 下，别删。构建脚本已改为兼容 Windows PowerShell 5.1（原脚本要 PowerShell 7）。
+- **打包 EXE 可用**（2026-10-13）：`node scripts/…` 不用管，直接跑 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -WebView2Dir <repo>\sdk\lib -RuntimeTemplateDir <repo>\work\runtime-template -OutputDirectory "<outputs>"`。产物在 `<outputs>\`（README/构建文档写的"工作区根目录 outputs"在本机会解析到 `B:\`，所以显式传 `-OutputDirectory`）。`work\runtime-template\NODE-LICENSE.txt` 是本机 Node 安装缺失的许可文件，已在 .gitignore 的 work/ 下，别删。构建脚本已改为兼容 Windows PowerShell 5.1（原脚本要 PowerShell 7）。
 - **窗口与顶栏融合**（2026-10-13，dev.6）：启动器去掉系统标题栏（`WM_NCCALCSIZE` 置空 + `WM_NCHITTEST` 保留八向缩放），网页顶栏右上角带 最小化/最大化/关闭 三键，顶栏空白区可拖动窗口、双击切换最大化。**`WM_NCCALCSIZE` 的最大化内缩必须按几何判断**（`CoversWorkArea()`：窗口矩形是否盖满最近显示器的工作区），**绝不能看 `WindowState`**——它在最大化/还原过渡期滞后于消息里的矩形，曾导致首次还原时窗口四周露出浅色底边（dev.7 修复）。网页端一切窗口控制都由 `[data-host-window]` 控制，浏览器端不出现。宿主消息协议是 `rhine-window:min|max|close|drag`。**强制杀启动器进程会孤儿化 node 服务**（finally 不执行），孤儿服务占着端口且 projectDir 不匹配会让下一版 EXE 全端口 Busy，务必用 CloseMainWindow 或界面关闭。
 - **无边框窗口的缩放必须由网页侧驱动**（2026-10-13，dev.10 修复）：`WM_NCCALCSIZE` 去掉边框后整个窗口都是客户区、被 WebView2 子窗口覆盖，**Windows 的边缘缩放判定永远到不了窗体**——窗体里的 `WM_NCHITTEST` 代码再正确也不会有真实鼠标到达（这是本轮最大的验证盲区：`SendMessage(WM_NCHITTEST)` 得到的返回值完全正确，但真实鼠标不走这条路）。正确做法与拖动一致：网页检测 6px 边缘热区 → `rhine-window:resize-left|right|top|bottom|topleft|topright|bottomleft|bottomright` → 宿主 `ReleaseCapture()` + `SendMessage(WM_NCLBUTTONDOWN, HT*, 0)` 进入原生缩放循环。**验证方式必须是真实鼠标输入**（`SetCursorPos` + `mouse_event` 按下/移动/松开），不能只用发消息问 hit test；探测时若用户正在操作鼠标会互相干扰，且**窗口被最小化时 `GetWindowRect` 读出 0x0**，会伪装成"没反应"。
   **光标必须一起处理**：三维 canvas 在悬停场景时自己设置光标，**只把光标设在根元素上会被覆盖**（表现为"贴边没有缩放光标，像是没生效"）。解决办法是在热区内用样式表接管：`#stage[data-window-edge], #stage[data-window-edge] * { cursor: inherit !important; }`，并由 JS 维护 `data-window-edge`（无热区时删除属性）。另外**窗口控制按钮（✕□─）位于右上角热区之内**，必须在热区判定里排除（`.window-controls`），否则会被缩放抢走点击。
@@ -274,7 +274,7 @@ git merge main
   2. **参考机标准（本项目新增）**：`performance-acceptance-reference.json`，渲染缓冲区 ≥2560×1440 且必须等于报告里实测的 backbuffer，同样 6 场景/同样阈值，必须写明实测硬件
   两套都不允许降低画质或把低分辨率放大。**完整说明与运行方式见 `PERFORMANCE-ACCEPTANCE.md`**。
   - 用户参考机是 **3440×1440 @144Hz + RTX 2070 SUPER**：**全屏**下 backbuffer 3440×1440（达标），最大化时只有 3440×1370（任务栏占 70px，不达标）→ 验收必须在全屏下跑。无 4K 显示设备，因此当前**仍不发正式版**，继续开发版线（dev.N）。
-  - 验收脚手架在仓库外 `B:\RHINE LAB_DEV\_verify\perf\`：`run-acceptance.ps1`（编排两轮运行 + PresentMon，需一次 UAC）、`analyze-capture.mjs`（按阶段标记切片、出报告）、`PresentMon.exe` 2.6.0。程序侧钩子：`RHINE_PERF_SCENARIOS` / `RHINE_PERF_OUT` / `RHINE_PERF_EXIT` / `RHINE_FULLSCREEN`，阶段标记（QPC + UTC）写在 `RHINE_PERF_OUT` 的 JSONL 里。**PresentMon 必须管理员权限**（ETW），否则报 `access denied`；脚本会自动提权重启自己。
+  - 验收脚手架在仓库外 `<verify>\perf\`：`run-acceptance.ps1`（编排两轮运行 + PresentMon，需一次 UAC）、`analyze-capture.mjs`（按阶段标记切片、出报告）、`PresentMon.exe` 2.6.0。程序侧钩子：`RHINE_PERF_SCENARIOS` / `RHINE_PERF_OUT` / `RHINE_PERF_EXIT` / `RHINE_FULLSCREEN`，阶段标记（QPC + UTC）写在 `RHINE_PERF_OUT` 的 JSONL 里。**PresentMon 必须管理员权限**（ETW），否则报 `access denied`；脚本会自动提权重启自己。
   - 发布闸门已实测（临时目录里跑 `--finalize`）：4K 标准有效 → 放行；参考机标准有效 → 放行；backbuffer 过小 / 无硬件块 / 只有 45fps / 无报告 → 全部拦截。`node scripts/check-version.mjs` 通过（覆盖原拦截路径）。
   - 场景驱动已实测（无需管理员）：`cold-switch` 切换成功（`albumChanged:true`、`failures:0`）、`theme-switch` 三个主题全部应用（`applied:3/3`）、`album-detail` 打开并进入相机就绪（`opened:true,detailReady:true`）、metadata 记录到 backbuffer/GPU/曲库规模。
 - **GitHub Releases 的排序规律**（2026-10-14 实测确认，用于让"最新版排在最上面"）：
@@ -291,20 +291,20 @@ git merge main
 
 1. 代理必须开着：`127.0.0.1:10810`（Whale）。**代理关闭时任何 GitHub 结论都不可信**（曾因此误判仓库被删除）。
    **Git 走这个代理必须用 TLS 1.2**：schannel 的 TLS 1.3 在此代理下握手会失败（`schannel: failed to receive handshake`），已用 `http.https://github.com/.sslVersion=tlsv1.2` 修在仓库本地配置里，别删。换 OpenSSL 后端也不行（`unexpected eof`），只有锁 TLS 1.2 有效。
-2. 构建并启动本地服务（**注意：8099 上通常已经有一个在跑的服务，它用的是用户真实曲库 `D:\Music\林子汐的车载电台`，不是 `_verify` 副本；别再起第二个**）：
+2. 构建并启动本地服务（**注意：8099 上通常已经有一个在跑的服务，它用的是用户真实曲库 `<music-root>`，不是 `_verify` 副本；别再起第二个**）：
    ```powershell
    npm run build
    node scripts/music-server.mjs     # 服务每次请求现读 dist，改完只需 build + 浏览器 Ctrl+Shift+R
    ```
 3. 测试歌曲：**`林子汐 - NUNA3.0`**（track id `track-3885ff186af821e6c45ba7d8`，专辑 `NUNA3.0`，49 行歌词）。
-4. **验证脚手架在仓库外**：`B:\RHINE LAB_DEV\_verify\css-diff\`（CDP 驱动 Edge headless 的量测脚本）。仓库里不留任何临时文件。
+4. **验证脚手架在仓库外**：`<verify>\css-diff\`（CDP 驱动 Edge headless 的量测脚本）。仓库里不留任何临时文件。
    **每次改完先跑 `boot-diag.mjs`** —— 它监控未捕获异常/boot 状态。本轮曾因一个 `let` 声明在函数之后（TDZ）导致整个应用启动中断、卡在"正在载入三维专辑架"，而当时所有"只看几个盒子"的脚本全部漏过。
 
 ### 下一步：原生重构（2026-10-14 用户决定）
 
 **用户的决定**：现有分支的迭代**暂停**在 `0.7.0-dev.13`（只保留帧率调度，画质与上游一致），**接下来着手用 Rust 重构整个项目**（原作者也打算改用 C++，理由是同一套 WebView2/Three.js 栈的性能与资源占用）。
 
-**重构前的分析与决策材料**：`B:\RHINE LAB_DEV\RUST-REWRITE-ANALYSIS.md`（含实测的性能账本、两套技术选型 A/B/C、以及"网页栈的地板"结论）。**待用户明确四点后才能选型**：① 首要目标（性能/内存启动/单纯换栈）② 时间预期（能否接受数月、是否并行）③ 界面是否允许与现版有差异 ④ 3D 场景是否可简化。
+**重构前的分析与决策材料**：`<workspace>\RUST-REWRITE-ANALYSIS.md`（含实测的性能账本、两套技术选型 A/B/C、以及"网页栈的地板"结论）。**待用户明确四点后才能选型**：① 首要目标（性能/内存启动/单纯换栈）② 时间预期（能否接受数月、是否并行）③ 界面是否允许与现版有差异 ④ 3D 场景是否可简化。
 
 **重构时必须继承的既有约定**：`DEVELOPMENT.md` 第 2/3 节（main 与 rhine-lab 两条线、bug 归属判断）、版本号规则与两套验收标准、以及"用户确认后才推送/发布"。
 

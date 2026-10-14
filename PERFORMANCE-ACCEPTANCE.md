@@ -14,13 +14,13 @@
 
 - 显示器：3440×1440 @ 144Hz（21:9 带鱼屏）
 - 显卡：NVIDIA GeForce RTX 2070 SUPER
-- 曲库：`D:\Music\林子汐的车载电台`（169 张专辑 / 666 首）
+- 曲库：`<music-root>`（169 张专辑 / 666 首）
 - 采集在**全屏**下进行（否则任务栏会让渲染高度只剩 1370，不满足 ≥1440 的下限）
 
 ## 怎么跑（一次命令）
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "B:\RHINE LAB_DEV\_verify\perf\run-acceptance.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "<verify>\perf\run-acceptance.ps1"
 ```
 
 流程（脚本自己完成）：

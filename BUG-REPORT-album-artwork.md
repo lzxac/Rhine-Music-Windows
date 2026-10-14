@@ -12,7 +12,7 @@
 
 Every track that the scanner pooled into one artist-level folder displayed the **same album cover** — the artwork embedded in whichever file the scanner happened to read first. Files were fine: an independent tag editor (MusicTag) showed the correct, distinct cover for each song, so the metadata itself was never the problem.
 
-Measured on the reporting user's library (`D:\Music\林子汐的车载电台`, 666 audio files, mostly FLAC):
+Measured on the reporting user's library (`<music-root>`, 666 audio files, mostly FLAC):
 
 | | Before fix (`dev.57`) | After fix (`dev.58`) |
 |---|---|---|
@@ -30,7 +30,7 @@ A direct metadata probe of the 43 files in `林子汐\` found **41 distinct embe
 Layout — this is the common "one folder per artist, one folder per album" collection, where an artist folder additionally holds loose singles:
 
 ```
-D:\Music\林子汐的车载电台\          <- configured scan root; contains no audio itself
+<music-root>\          <- configured scan root; contains no audio itself
 ├── 林子汐\                        <- artist folder holding 43 LOOSE files
 │   ├── 林子汐 - 爱不在焉.flac       album="爱不在焉"  + own embedded cover
 │   ├── 林子汐 - 冰箱.flac          album="冰箱"     + own embedded cover

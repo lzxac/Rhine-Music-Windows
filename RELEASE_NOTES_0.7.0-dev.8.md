@@ -17,5 +17,5 @@
 
 ## 校验
 
-- 本地安装包：`B:\RHINE LAB_DEV\outputs\Rhine-Music-Desktop-0.7.0-dev.8.exe`
+- 本地安装包：`<outputs>\Rhine-Music-Desktop-0.7.0-dev.8.exe`
 - SHA-256：`d632baa0356c2aea96fe1fcbf1eb5314192598cd2dd8ff7006556e0a5896ac80`
