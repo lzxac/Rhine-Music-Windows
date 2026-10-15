@@ -53,9 +53,9 @@ assert.ok(!atlasSource.includes('uniform highp sampler2DArray map'), 'cover shad
 assert.ok(musicAppSource.includes('if (!albums.length) $("#music-empty").hidden = false;'), 'the bundled demo-cover entry must remain visible when the local music service is unavailable');
 assert.ok(musicAppSource.includes('id="music-lyrics-panel"'), 'synchronized lyrics must render in the persistent right-hand panel');
 assert.ok(musicAppSource.includes('const hasLyrics = !!track && lyricLines.length > 0;'), 'the lyrics card follows the track\'s lyrics, not the transport: a stopped track with lyrics can be read');
-assert.ok(/panelElement\.hidden = !hasLyrics/.test(musicAppSource), 'the lyrics panel must hide itself when the current track has no lyrics');
+assert.ok(/const shouldShow = hasLyrics && !collapsed && stage\.dataset\.mode !== "archive"/.test(musicAppSource) && musicAppSource.includes("lyricsPanelTransition.show("), 'the lyrics panel must hide itself when the current track has no lyrics — now by driving its own transition, which animates the close before hiding it');
 assert.ok(musicAppSource.includes('$("#lyrics-panel-body").hidden = collapsed;'), 'collapsing the lyrics panel must hide its scrolling body');
-assert.ok(musicAppSource.includes('openLyrics.setAttribute("aria-expanded", String(!panelElement.hidden));'), 'the 词 button must carry the CARD state (on screen or not), not the stored preference, or it goes yellow with nothing to show');
+assert.ok(musicAppSource.includes('openLyrics.setAttribute("aria-expanded", String(shouldShow));'), 'the 词 button must carry the CARD state, from the intended state, not the stored preference');
 assert.ok(musicAppSource.includes('function centerLyricLine(snap: boolean) {'), 'scrolling lyrics must centre the active line inside its own container');
 assert.ok(musicAppSource.includes('list.scrollTop = start + (target - start) * eased;'), 'the lyric follow must animate the list scroll itself so moves cannot stack');
 assert.ok(musicAppSource.includes('function holdLyricFollow()'), 'a manual lyric scroll must be able to defer the automatic centring');
@@ -70,7 +70,7 @@ assert.ok(musicAppSource.includes('window.matchMedia("(prefers-reduced-motion: r
 assert.ok(musicAppSource.includes('duration: 200, easing: "ease-out"'), 'lyric line animation must stay within the short transition budget');
 assert.ok(musicAppSource.includes('active.setAttribute("aria-current", "true");'), 'the active lyric line must be marked for assistive technology');
 assert.ok(musicAppSource.includes('row.textContent = line.text;'), 'lyric text must stay literal text and never become markup');
-assert.ok(musicAppSource.includes('if (Number.isInteger(index) && lyricLines[index]) player.seek(lyricLines[index].time);'), 'clicking a lyric line must seek to its timestamp');
+assert.ok(musicAppSource.includes("const jumpTime = lyricLines[index].time + 0.05;") && musicAppSource.includes("centerLyricLine(true);"), 'clicking a lyric line must nudge past its timestamp, mark it pending while the seek takes effect, and centre it at once');
 assert.ok(musicAppSource.includes('preferences.lyricsCollapsed'), 'the collapsed lyric state must persist between sessions');
 assert.ok(!musicAppSource.includes('openPanel("lyrics")'), 'lyrics must no longer open as a modal panel');
 assert.ok(!musicAppSource.includes('renderLyricsPanel'), 'the modal lyrics renderer must be gone now that the panel is persistent');
@@ -90,7 +90,7 @@ assert.ok(musicStyleSource.includes('--lyrics-left: 58%'), 'the lyrics panel mus
 assert.ok(!musicStyleSource.includes('.lyric-list::after'), 'the lyric list must not use head/tail spacers, which push the first lines out of view');
 assert.ok(!musicStyleSource.includes('.music-lyric-dock'), 'the retired lyric dock must not leave layout rules behind');
 assert.ok(musicStyleSource.includes('mask-image: linear-gradient('), 'the lyrics list must fade out at the panel edges');
-assert.ok(musicStyleSource.includes('calc(clamp(15px, 1.05vw, 21px) * var(--lyrics-font-scale, 1))'), 'the collapsed card live line must keep the responsive clamp and the size factor; the lyric lines themselves are covered above');
+assert.ok(musicStyleSource.includes("calc(clamp(15px, 1.05vw, 20px) * var(--lyrics-font-scale, 1))"), 'the lyric lines must keep the responsive clamp and the size factor; the retired collapsed card live line needed no check of its own');
 assert.ok(musicStyleSource.includes('@media (max-width: 780px)'), 'compact windows need a documented fallback for the lyrics panel');
 assert.ok(!musicStyleSource.includes('.music-app[data-lyrics-visible="true"][data-mode="detail"] #album-detail-content'), 'showing lyrics must not change the album column padding, which shifted the detail page content sideways');
 assert.ok(musicStyleSource.includes('#album-detail-content .album-detail-body'), 'the lyrics panel must hide only the album block it covers, not the whole column');
@@ -130,9 +130,9 @@ assert.ok(musicAppSource.includes('creditsTop - (trackReserve ?? 0)'), 'the pane
 // stands in for the album column, and the archive page has none (measured: 430px of
 // overlap with the callout block before this). It is hidden there and shown again on
 // the album page, where it is re-measured as it appears.
-assert.ok(/panelElement\.hidden = !hasLyrics \|\|[\s\S]{0,40}stage\.dataset\.mode === "archive"/.test(musicAppSource), 'the card must be hidden while the archive is showing');
+assert.ok(musicAppSource.includes('stage.dataset.mode !== "archive"') && musicAppSource.includes("lyricsPanelTransition.hide("), 'the card must be hidden while the archive is showing, through the same transition that animates every other close');
 assert.ok(musicAppSource.includes('function applyLyricsCollapsed()'), 'the card state must be applied from one place, so the boot paint and the toggle cannot disagree');
-assert.ok(/wasHidden !== panelElement.hidden[\s\S]{0,200}requestAnimationFrame\(\(\) => syncLyricsPanelAlignment\(\)\)/.test(musicAppSource), 'the panel must re-measure on the frame it first appears: hidden, its band has no box, so the rule and the list were left at the last values until the next album switch');
+assert.ok(musicAppSource.includes("lyricsPanelTransition.show(preferences.reduced, syncLyricsPanelAlignment)"), 'the panel must re-measure when it appears: while hidden its band has no box, so the rule and the list would keep the old values');
 // The lyrics card's song block carries the album column's own type sizes, and its
 // rule is placed on the album column's rule by measuring the distance — a wrapped
 // album title moves that rule, and a written-down height would miss it.
@@ -180,6 +180,50 @@ assert.ok(/\.music-lyrics-panel\[data-lyrics-align="center"\] \.lyric-line/.test
 assert.ok(musicStyleSource.includes('transform-origin: center center'), 'the active line must re-anchor its transform when centred, or it grows to one side');
 assert.ok(themeSwitchSource.includes('.music-app[data-theme="dusk"] .theme-switch::before'), 'the top theme selector must place its active pill on dusk');
 assert.ok(themeSwitchSource.includes('translateX(calc(200% + 8px))'), 'the top theme selector must place its active pill on night');
+// The seek row sits in the transport band, in the owner's order: chevron (below the list),
+// then the seek row, then the status line, then the controls. The order is the point — the
+// status line nearly touches the play button, so the free space is above it.
+assert.ok(/id="track-more"[\s\S]*?class="detail-seek"[\s\S]*?id="transport-lyric-status"[\s\S]*?class="detail-transport-controls"/.test(musicAppSource), 'the band must be ordered chevron → seek row → status line → controls');
+assert.ok(/document\.querySelector<HTMLElement>\("#detail-seek"\)/.test(musicAppSource), 'the seek row must be looked up by the id the markup gives it');
+assert.ok(/id="detail-seek"[\s\S]{0,220}id="detail-seek-current"[\s\S]{0,220}type="range"[\s\S]{0,220}id="detail-seek-bubble"[\s\S]{0,220}id="detail-seek-total"/.test(musicAppSource), 'the seek row is elapsed label, slider, hover bubble, total label, in that order');
+// The clock drives the slider, and while the pointer is on it the slider is the source of
+// truth; a drag only PREVIEWS, so nothing is written back and the seek waits for release.
+// That is what keeps scrubbing from stuttering the audio.
+assert.ok(musicAppSource.includes('syncSeekRow(currentTime, playerState?.duration ?? 0);'), 'the audio clock must drive the seek row on every lyric sync');
+assert.ok(musicAppSource.includes('const shown = seekingDrag ? Number(range.value) : Math.min(currentTime, duration);'), 'while dragging the slider must be the source of truth, not the audio clock');
+assert.ok(musicAppSource.includes('if (!seekingDrag) range.value = String(shown);'), 'a drag must not write the clock back over the slider it is holding');
+assert.ok(musicAppSource.includes('range.addEventListener("change", () => {') && musicAppSource.includes('player.seek(Number(range.value));'), 'the seek must happen on release/commit, not during the drag');
+// The row is part of the band's layout, not something that appears once a track loads:
+// it ships visible in the markup and an unusable (or not-yet-started) track dims it and
+// blocks the drag instead of removing it. A row that arrived later read as the band
+// rearranging itself.
+assert.ok(/class="detail-seek" id="detail-seek">/.test(musicAppSource) && !/id="detail-seek" hidden/.test(musicAppSource), 'the seek row must ship visible: opening an album shows it, it does not wait for a track');
+assert.ok(/row\.dataset\.empty = !usable \|\| \(currentTime <= 0 && !seekingDrag\) \? "true" : "false";/.test(musicAppSource), 'an unusable or not-yet-started row must be dimmed rather than removed');
+assert.ok(musicAppSource.includes('range.disabled = !usable;'), 'with no duration the slider must actually be disabled, not just dimmed');
+assert.ok(!musicAppSource.includes('row.hidden = !usable;'), 'the row must not hide itself when there is no duration: it is part of the layout');
+assert.ok(/const usable = Number\.isFinite\(duration\) && duration > 0;/.test(musicAppSource), 'a zero or unknown duration must count as unusable, so the row cannot offer a live slider');
+// Entering the album detail stocks the row, so it never needs a track to appear.
+assert.ok(musicAppSource.includes('syncSeekRow(player.playbackTime, playerState?.duration ?? 0);'), 'entering the album detail must stock the seek row, so it is on screen before any track loads');
+// Nothing to preview on a dead slider: no bubble over it.
+assert.ok(/row\?\.dataset\.empty === "true"\) return;/.test(musicAppSource), 'the hover bubble must stay away while the row is empty');
+// The bubble's visibility belongs to the hover rule, so the JS guard above cannot suppress
+// it: the empty row needs its own rule or a dead slider raises a 00:00 bubble on hover.
+assert.ok(/\.detail-seek\[data-empty="true"\] \.detail-seek-bubble \{[\s\S]{0,60}opacity: 0;/.test(musicStyleSource), 'an empty seek row must suppress the hover bubble, which its JS-side guard cannot do alone');
+// The time text carries the hours branch; a track past an hour must not read "72:05".
+assert.ok(musicAppSource.includes('return `${hours ? `${hours}:` : ""}${mm}:${String(rest).padStart(2, "0")}`;'), 'the elapsed and total labels must switch to h:mm:ss past an hour');
+// Styling contracts: a 2px track with the played part in the accent colour, and a thumb that
+// stays hidden until hover or focus so the band reads calm at rest.
+assert.ok(/\.detail-seek \{[\s\S]{0,220}display: flex/.test(musicStyleSource), 'the seek row must lay its labels and track out on one line');
+assert.ok(/\.detail-seek input\[type="range"\]::-webkit-slider-runnable-track \{[\s\S]{0,260}height: 2px/.test(musicStyleSource), 'the seek track must stay a hairline');
+assert.ok(/var\(--accent\) var\(--seek-progress, 0%\)/.test(musicStyleSource), 'the played part of the track must be the accent colour, sized by --seek-progress');
+assert.ok(/::-webkit-slider-thumb \{[\s\S]{0,300}opacity: 0;/.test(musicStyleSource), 'the thumb must be invisible at rest or the band never looks settled');
+assert.ok(/\.detail-seek-field:hover input\[type="range"\]::-webkit-slider-thumb,[\s\S]{0,120}:focus-visible::-webkit-slider-thumb \{[\s\S]{0,60}opacity: 1;/.test(musicStyleSource), 'the thumb must appear on hover and on keyboard focus, never on hover alone');
+assert.ok(/\.detail-seek\[data-empty="true"\] input\[type="range"\] \{[\s\S]{0,120}opacity: 0\.4;/.test(musicStyleSource), 'with nothing to seek through the row must read as unavailable rather than broken');
+assert.ok(/prefers-reduced-motion[\s\S]{0,220}\.detail-seek[\s\S]{0,160}transition: none/.test(musicStyleSource), 'the seek affordances must drop their transitions for a viewer who asked for reduced motion');
+// The controls are a 1fr/auto/1fr grid, which is what puts the play button in the exact
+// centre of the row rather than at the centre of the buttons.
+assert.ok(/\.detail-transport-controls \{[\s\S]{0,120}grid-template-columns: 1fr auto 1fr;/.test(musicStyleSource), 'the control row must centre the play button on its own column');
+assert.ok(/\.detail-transport-controls > #play-pause \{[\s\S]{0,60}justify-self: center;/.test(musicStyleSource), 'the play button must be centred against the row, not against its neighbours');
 const mainCamera = new THREE.PerspectiveCamera();
 const shadowCamera = new THREE.OrthographicCamera();
 shadowCamera.layers.enable(1);

@@ -16,10 +16,25 @@ export class SurfaceTransition {
     // Separate overlays can fade together without changing their common
     // ancestor's stacking context or flattening them into a full-screen layer.
     private fadeTargets: readonly HTMLElement[] = [root],
+    // The exit's timing and distance default to the app's own (a quicker ease-in, 52px
+    // right / 8px up). A caller that wants the exit to be an exact mirror of its entry
+    // passes the entry's easing and distance here — the lyrics card does, because its
+    // exit read as slower and shorter than its entry.
+    private exitEasing = exitEase,
+    private exitDistance = direction === "right" ? 52 : 8,
   ) {}
 
-  show(reduced: boolean, finished: () => void = () => {}) {
-    this.run(true, reduced, finished);
+  show(
+    reduced: boolean,
+    finished: () => void = () => {},
+    // Elements that slide with the panel: the album detail's transport row is a sibling
+    // of the column it belongs to (the column's markup is rebuilt per album, so the row
+    // cannot live inside it), and it should read as ONE movement with the page — same
+    // keyframes, same options, same frame, issued from here rather than from an animation
+    // of its own.
+    slideTargets: readonly HTMLElement[] = [],
+  ) {
+    this.run(true, reduced, finished, slideTargets);
   }
 
   hide(reduced: boolean, finished: () => void = () => {}) {
@@ -36,7 +51,7 @@ export class SurfaceTransition {
     this.animations = [];
   }
 
-  private run(show: boolean, reduced: boolean, finished?: () => void) {
+  private run(show: boolean, reduced: boolean, finished?: () => void, slideTargets: readonly HTMLElement[] = []) {
     const revision = ++this.revision;
     const hidden = this.root.hidden;
     const opacities = this.fadeTargets.map((target) =>
@@ -65,7 +80,7 @@ export class SurfaceTransition {
     }
     const options: KeyframeAnimationOptions = {
       duration: show ? this.enterDuration : this.exitDuration,
-      easing: show ? this.enterEasing : exitEase,
+      easing: show ? this.enterEasing : this.exitEasing,
       fill: "both",
     };
     const fades = this.fadeTargets.map((target, index) => target.animate(
@@ -73,14 +88,17 @@ export class SurfaceTransition {
       options,
     ));
     this.animations.push(...fades);
-    if (this.panel) {
+    // The panel and anything asked to slide with it (see show()): one set of keyframes and
+    // one set of options, so they cannot drift apart.
+    const sliding = this.panel ? [this.panel, ...slideTargets] : [...slideTargets];
+    for (const element of sliding) {
       this.animations.push(
-        this.panel.animate(
+        element.animate(
           [
             { transform },
             { transform: this.direction === "right"
-              ? show ? "translateX(0)" : "translateX(52px)"
-              : show ? "translateY(0)" : "translateY(8px)" },
+              ? show ? "translateX(0)" : `translateX(${this.exitDistance}px)`
+              : show ? "translateY(0)" : `translateY(${this.exitDistance}px)` },
           ],
           options,
         ),

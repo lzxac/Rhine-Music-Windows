@@ -344,6 +344,12 @@ const themeDescriptions: Record<Theme, string> = {
 };
 const stage = $("#stage");
 stage.className = "music-app";
+// The lyric line a viewer just clicked, held as active until the player's clock reaches it
+// (see syncLyricsPosition). Declared up here with the other boot-time state on purpose: the
+// player notifies its subscribers while the module is still evaluating, that path reaches
+// syncLyricsPosition, and a `let` declared further down would throw a TDZ ReferenceError at
+// boot instead.
+let lyricJump: { index: number; time: number; deadline: number } | null = null;
 stage.dataset.mode = "archive";
 stage.dataset.theme = preferences.theme;
 // Running inside the Windows launcher (WebView2) exposes the host bridge; the
@@ -380,8 +386,6 @@ stage.innerHTML = `
           <button type="button" id="lyrics-align-toggle" data-action="lyrics-align" aria-label="切换歌词对齐方式" title="切换歌词对齐方式">⇤</button>
         </div>
       </div>
-      <p id="lyrics-panel-status" class="lyrics-panel-status" role="status" aria-live="polite"></p>
-      <p id="lyrics-panel-current" class="lyrics-panel-current" title="展开歌词">—</p>
     </div>
     <div id="lyrics-panel-body" class="lyrics-panel-body">
       <div id="lyric-list" class="lyric-list" tabindex="0" role="group" aria-label="歌词，点击一行可跳转到该时间"></div>
@@ -405,7 +409,7 @@ stage.innerHTML = `
   </section>
   <section id="music-detail" class="music-detail" aria-label="专辑详情" hidden>
     <button class="music-back" data-action="back">← 返回专辑架 <kbd>ESC</kbd></button>
-    <div class="minimal-transport detail-transport" role="group" aria-label="音乐播放"><span id="transport-lyric-status" class="transport-lyric-status" role="status" aria-live="polite" hidden></span><div class="detail-transport-controls"><button type="button" data-action="locate-playing" id="transport-track" class="transport-track" aria-label="定位当前歌曲" aria-hidden="true" disabled><span id="transport-track-label"></span></button><button type="button" id="transport-lyrics-open" class="transport-lyrics-open" data-action="lyrics-panel" aria-expanded="false">词</button><button data-action="play-pause" id="play-pause" aria-label="播放" aria-pressed="false"><span class="transport-glyph transport-play" aria-hidden="true">${icons.play}</span><span class="transport-glyph transport-pause" aria-hidden="true">${icons.pause}</span></button><button data-action="stop" id="stop-playback" aria-label="停止">${icons.stop}</button></div></div>
+    <div class="minimal-transport detail-transport" role="group" aria-label="音乐播放"><button type="button" id="track-more" class="track-more" data-action="track-more" aria-label="下面还有曲目" hidden><svg viewBox="0 0 12 7" aria-hidden="true" focusable="false"><path d="M1 1l5 5 5-5" /></svg></button><div class="detail-seek" id="detail-seek"><span class="detail-seek-time" id="detail-seek-current">00:00</span><div class="detail-seek-field"><input type="range" id="detail-seek-range" min="0" max="0" step="0.1" value="0" aria-label="播放进度"><span class="detail-seek-bubble" id="detail-seek-bubble">00:00</span></div><span class="detail-seek-time" id="detail-seek-total">00:00</span></div><span id="transport-lyric-status" class="transport-lyric-status" role="status" aria-live="polite" hidden></span><div class="detail-transport-controls"><button type="button" data-action="locate-playing" id="transport-track" class="transport-track" aria-label="定位当前歌曲" aria-hidden="true" disabled><span id="transport-track-label"></span></button><button type="button" id="transport-lyrics-open" class="transport-lyrics-open" data-action="lyrics-panel" aria-expanded="false">词</button><button data-action="play-pause" id="play-pause" aria-label="播放" aria-pressed="false"><span class="transport-glyph transport-play" aria-hidden="true">${icons.play}</span><span class="transport-glyph transport-pause" aria-hidden="true">${icons.pause}</span></button><button data-action="stop" id="stop-playback" aria-label="停止">${icons.stop}</button></div></div>
     <div class="card-caption"><span id="detail-card-id"></span><small>拖动卡片，查看完整封面</small></div>
     <article id="album-detail-content" tabindex="-1"></article>
   </section>
@@ -415,7 +419,6 @@ stage.innerHTML = `
   <div id="music-loading"><span class="loading-orbit"></span><strong>OPENING THE ARCHIVE</strong><small>正在载入三维专辑架</small></div>
 `;
 // Apply the stored collapsed state once, before the first paint of the panel.
-$("#lyrics-panel-body").hidden = !!preferences.lyricsCollapsed;
 if (hostBridge) {
   const sendWindowAction = (action: string) => hostBridge.postMessage("rhine-window:" + action);
   const isInteractive = (target: EventTarget | null) =>
@@ -624,6 +627,24 @@ const detailTransition = new SurfaceTransition(
   240,
   "right",
 );
+// The lyrics card enters and leaves with the same kind of movement as the album page
+// itself (from and back to the right). The transition owns the panel's `hidden` flag, so
+// closing animates first and only then hides the card — a plain `hidden = true` would cut
+// it off mid-flight. Its `show` completion is also where the card re-measures itself.
+const lyricsPanelTransition = new SurfaceTransition(
+  $("#music-lyrics-panel"),
+  $("#music-lyrics-panel"),
+  320,
+  // The exit mirrors the entry exactly: the same 320ms, the same ease-out curve and the
+  // same 36px, instead of the app's default exit (240ms, an ease-in, 52px) which read as
+  // slower to start and barely moving.
+  320,
+  "right",
+  "cubic-bezier(0.22, 1, 0.36, 1)",
+  undefined,
+  "cubic-bezier(0.22, 1, 0.36, 1)",
+  36,
+);
 const browseTransition = new SurfaceTransition(
   $("#music-browse"),
   undefined,
@@ -692,7 +713,16 @@ const presentation = new MusicPresentation({
     // or still hidden — the album column has no usable box, so the sync the render
     // triggered measured nothing and nothing else would retry it. The track list's
     // reserved row and the lyrics card's bottom edge both come from that measurement.
-    detailTransition.show(preferences.reduced, syncLyricsPanelAlignment);
+    detailTransition.show(preferences.reduced, syncLyricsPanelAlignment,
+      [document.querySelector<HTMLElement>(".detail-transport")].filter((el): el is HTMLElement => !!el));
+    // And once more the moment the pane has a layout again: the reveal above un-hides it,
+    // so the reservation (which is what the list's bottom edge and the transport row's
+    // height both come from) can be measured NOW instead of after the 360ms entrance.
+    // Measuring here is exact even mid-animation: the reservation is the distance between
+    // the first track row and the credits line, and the entrance transform shifts both by
+    // the same amount. Without it the first album opened painted the fallback reservation
+    // and then visibly corrected itself.
+    syncLyricsPanelAlignment();
     detail.inert = !!panel;
     detail.setAttribute("aria-hidden", "false");
     content.inert = false;
@@ -1252,6 +1282,8 @@ function renderDetail() {
   // The tab content decides where the first track row sits, so re-measure the
   // collapsed-card alignment after every detail render and tab switch.
   syncLyricsPanelAlignment();
+  // And quietly prepare this album's lyrics while its track list is being read.
+  void prefetchAlbumLyrics(currentAlbum());
 }
 function trackList(a: MusicAlbum, discs: number) {
   if (!a.tracks.length)
@@ -1729,7 +1761,6 @@ function syncQueuePanel(force = false) {
 function applyLyricsCollapsed() {
   const collapsed = !!preferences.lyricsCollapsed;
   $("#lyrics-panel-body").hidden = collapsed;
-  stage.dataset.lyricsCollapsed = String(collapsed);
 }
 
 // The panel is expanded by default; collapsing keeps only a slim band with the
@@ -1745,6 +1776,40 @@ function setLyricsCollapsed(collapsed: boolean) {
   if (!collapsed) {
     activeLyric = -2;
     syncLyricsPosition(player.playbackTime);
+  }
+}
+
+// Lyrics are read from a small local .lrc file beside the track and cannot change without
+// that file changing, so a hit is served from memory instead of asking the service again.
+const lyricCache = new Map<string, { found: boolean; text: string }>();
+
+async function lyricsFor(trackId: string): Promise<{ found: boolean; text: string }> {
+  const cached = lyricCache.get(trackId);
+  if (cached) return cached;
+  const result = await request<{ found: boolean; text: string }>(
+    `/api/lyrics/${encodeURIComponent(trackId)}`,
+  );
+  lyricCache.set(trackId, result);
+  return result;
+}
+
+// Preparing a whole album's lyrics while the viewer is still reading its track list: they
+// are tiny local files, and it means pressing play on any of them shows lyrics at once
+// instead of starting a lookup then. Sequential, bounded, and cancellable — opening
+// another album stops the walk, so nothing is fetched for a list nobody is looking at.
+let lyricPrefetch = 0;
+const LYRIC_PREFETCH_LIMIT = 40;
+async function prefetchAlbumLyrics(album: MusicAlbum | undefined): Promise<void> {
+  const generation = ++lyricPrefetch;
+  if (!album) return;
+  for (const track of album.tracks.slice(0, LYRIC_PREFETCH_LIMIT)) {
+    if (generation !== lyricPrefetch) return;
+    if (lyricCache.has(track.id)) continue;
+    try {
+      await lyricsFor(track.id);
+    } catch {
+      // No LRC, or an unreadable one: the panel already reports that when it matters.
+    }
   }
 }
 
@@ -1764,7 +1829,7 @@ async function loadLyrics(track: MusicTrack | null) {
   syncLyricClock();
   if (!track) return;
   try {
-    const result = await request<{ found: boolean; text: string }>(`/api/lyrics/${encodeURIComponent(track.id)}`);
+    const result = await lyricsFor(track.id);
     if (requestVersion !== lyricRequestVersion || lyricTrackId !== track.id) return;
     lyricLines = result.found ? parseLrc(result.text) : [];
     lyricStateText = !result.found ? "歌曲所在文件夹里没有同名 LRC 歌词。" : lyricLines.length ? "点击歌词可跳转到对应时间" : "LRC 文件没有可识别的时间戳歌词。";
@@ -1810,8 +1875,6 @@ function renderLyricRows() {
 
 function updateLyricFocus(index: number) {
   const list = document.querySelector<HTMLElement>("#lyric-list");
-  const current = document.querySelector<HTMLElement>("#lyrics-panel-current");
-  if (current) current.textContent = index >= 0 ? lyricLines[index]?.text ?? "—" : "—";
   if (!list) return;
   list.querySelector<HTMLElement>(".lyric-line.active")?.classList.remove("active");
   list.querySelectorAll<HTMLElement>(".lyric-line[aria-current='true']").forEach((row) => row.setAttribute("aria-current", "false"));
@@ -1898,6 +1961,9 @@ function syncLyricsPanelAlignment() {
   const column = document.querySelector<HTMLElement>("#album-detail-content");
   const stage = document.querySelector<HTMLElement>("#stage");
   if (!panel || !column || !stage) return;
+  // The seek row is part of this band, so entering the album detail (and every re-measure)
+  // stocks it: visible at 00:00 / 00:00 while no track is loaded, live once one is.
+  syncSeekRow(player.playbackTime, playerState?.duration ?? 0);
   const stageHeight = stage.clientHeight;
   // A zero-width box on an element that exists means it is not being laid out.
   const measurable = (element: HTMLElement | null): element is HTMLElement =>
@@ -1923,8 +1989,7 @@ function syncLyricsPanelAlignment() {
   //
   // The insets come from the stylesheet, never from the element's measured box:
   // reading the live box made this circular, since the measurement depended on
-  // the position this code had just set, and --lyrics-collapsed-offset is one
-  // value shared by both states.
+  // the position this code had just set.
   const panelStyles = getComputedStyle(panel);
   const parsedInset = (name: string, fallback: number) => {
     const value = parseFloat(panelStyles.getPropertyValue(name));
@@ -1935,11 +2000,9 @@ function syncLyricsPanelAlignment() {
   // exactly when the nav can have changed size.
   const borderTop = parseFloat(panelStyles.borderTopWidth) || 0;
   const firstLineInset = borderTop + parsedInset("--lyrics-top-inset", 16);
-  const collapsedInset = borderTop + parsedInset("--lyrics-collapsed-pad-top", 14);
   if (lyricsTitleTop !== null) {
     panel.style.setProperty("--lyrics-top", `${lyricsTitleTop - firstLineInset}px`);
   }
-  panel.style.setProperty("--lyrics-collapsed-offset", `${firstLineInset - collapsedInset}px`);
   // The panel's own horizontal padding mirrors the column's, so the lyrics sit
   // on the same two vertical lines as the album title and its credits rule. The
   // column's padding is not one number: it carries a scrollbar allowance that
@@ -1977,11 +2040,16 @@ function syncLyricsPanelAlignment() {
     const rowHeight = trackRows[0].height;
     const space = creditsTop - trackRows[0].top;
     const wholeRows = rowHeight > 0 ? Math.floor(space / rowHeight) : 0;
-    // One whole row is handed over, plus the slice of a row the scroller was cutting
-    // through, so the cut lands on a row's bottom rule instead of through its text.
-    // A window too short to hold two whole rows keeps its list: there is no row to
-    // give up without emptying it.
-    trackReserve = wholeRows >= 2 ? Math.round(space - (wholeRows - 1) * rowHeight) : 0;
+    // Two whole rows are handed over, plus the slice of a row the scroller was cutting
+    // through, so the cut still lands on a row's bottom rule and the list shows exactly
+    // one row fewer than one reservation did (the owner asked for the extra room). A
+    // short window gives up what it can: the reservation never eats the list's last
+    // whole row, and never drops to zero — with no band at all the transport row had
+    // nothing to sit in and its buttons spilled onto the credits line (measured on a
+    // 827x877 window: reserve 0px, the row 0px tall, the buttons over the credits).
+    const wanted = space - (wholeRows - 2) * rowHeight;
+    const ceiling = space - rowHeight;
+    trackReserve = wholeRows >= 1 ? Math.round(Math.max(0, Math.min(wanted, ceiling))) : 0;
   }
   // Written under the same guard as the measurements above: an album with no
   // measurable track row (the introduction tab, an empty album) keeps the last
@@ -2027,15 +2095,141 @@ function syncLyricsPanelAlignment() {
   // The sliding names are sized by the line they sit on, so they are re-measured
   // with everything else here (window resize included).
   applyNameSlides();
+  // The "more tracks below" chevron belongs to this same render: leaving it to the
+  // ResizeObserver alone meant it kept a stale state after an album was opened (the stage
+  // does not resize when the pane appears), so a long album hid it until the first scroll
+  // and a single-track album — which cannot be scrolled — kept showing it.
+  syncTrackMore();
   // No width cap: the album switcher sits above the panel's top edge, so
   // spanning the column's full width cannot cover it.
 }
-// Both measurements are layout-dependent, so keep them correct on resize.
-let lyricAlignTimer = 0;
+// Both measurements are layout-dependent, so keep them correct on resize. Once per
+// frame, NOT on a 150ms debounce: while the window is being dragged, a debounced run
+// leaves the reservation, the shared bottom line and the transport row's measured box
+// holding values from different window heights, and the list's visible bottom visibly
+// jumps away from the control row (and overshoots past it) until the timer lands.
+let lyricAlignFrame = 0;
 window.addEventListener("resize", () => {
-  window.clearTimeout(lyricAlignTimer);
-  lyricAlignTimer = window.setTimeout(syncLyricsPanelAlignment, 150);
+  if (lyricAlignFrame) return;
+  lyricAlignFrame = requestAnimationFrame(() => {
+    lyricAlignFrame = 0;
+    syncLyricsPanelAlignment();
+  });
 });
+// The resize event can arrive before the browser has laid the new size out, which left
+// every measurement one layout behind: the list's visible bottom then sat over the
+// transport row until something else happened to move. A ResizeObserver fires after
+// layout, so the numbers are always taken from the size that is actually on screen.
+new ResizeObserver(() => {
+  syncLyricsPanelAlignment();
+  syncTrackMore();
+}).observe(stage);
+// The "more tracks below" chevron is shown while the track list really has rows below its
+// visible bottom, and hidden again at the end of the list. The list itself is rebuilt for
+// every album, so its scrolling is watched from the stage with a capture listener (scroll
+// does not bubble) rather than on the element, which would be thrown away.
+function syncTrackMore() {
+  const more = document.querySelector<HTMLElement>("#track-more");
+  if (!more) return;
+  const scroller = document.querySelector<HTMLElement>("#album-detail-content .album-detail-scroll");
+  // The TRACK ROWS are what matters, not the scroller's content: the album column also
+  // holds the title, the facts and the tabs, so `scrollHeight > clientHeight` was true
+  // for an album with a single track and the chevron showed for it. Compare the last
+  // row's own bottom with the scroller's visible bottom instead — the same row geometry
+  // the reservation uses.
+  const lastRow = scroller?.querySelector<HTMLElement>("#album-tab-content .track-item:last-of-type");
+  if (!scroller || !lastRow) {
+    more.hidden = true;
+    return;
+  }
+  const room = lastRow.getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom;
+  more.hidden = room <= 8;
+}
+stage.addEventListener("scroll", syncTrackMore, { capture: true, passive: true });
+
+// The seek row's own labels and its slider. The clock drives the slider (see
+// syncLyricsPosition); while the pointer is on it, the slider is the source of truth and
+// dragging only PREVIEWS the time — the seek happens on release, so scrubbing cannot stutter
+// the audio. Left/right arrows work because it is a real range input; no course is added.
+function seekTimeText(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "00:00";
+  const total = Math.floor(seconds);
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  const hours = Math.floor(minutes / 60);
+  const mm = String(hours ? minutes % 60 : minutes).padStart(2, "0");
+  return `${hours ? `${hours}:` : ""}${mm}:${String(rest).padStart(2, "0")}`;
+}
+
+let seekingDrag = false;
+function syncSeekRow(currentTime: number, duration: number): void {
+  const row = document.querySelector<HTMLElement>("#detail-seek");
+  const range = document.querySelector<HTMLInputElement>("#detail-seek-range");
+  const current = document.querySelector<HTMLElement>("#detail-seek-current");
+  const total = document.querySelector<HTMLElement>("#detail-seek-total");
+  if (!row || !range || !current || !total) return;
+  // The row is part of the band's layout, so it is ALWAYS on screen: opening an album shows
+  // it at 00:00 / 00:00, dimmed and not draggable, rather than letting it appear only once a
+  // track loads. A later arrival would read as the band rearranging itself.
+  const usable = Number.isFinite(duration) && duration > 0;
+  row.dataset.empty = !usable || (currentTime <= 0 && !seekingDrag) ? "true" : "false";
+  range.disabled = !usable;
+  if (!usable) {
+    range.max = "0";
+    range.value = "0";
+    current.textContent = seekTimeText(0);
+    total.textContent = seekTimeText(0);
+    range.style.setProperty("--seek-progress", "0%");
+    return;
+  }
+  const shown = seekingDrag ? Number(range.value) : Math.min(currentTime, duration);
+  range.max = String(duration);
+  if (!seekingDrag) range.value = String(shown);
+  current.textContent = seekTimeText(shown);
+  total.textContent = seekTimeText(duration);
+  range.style.setProperty("--seek-progress", `${(shown / duration) * 100}%`);
+}
+function seekRowTimeFromEvent(range: HTMLInputElement, clientX: number): number {
+  const box = range.getBoundingClientRect();
+  const ratio = box.width > 0 ? Math.min(1, Math.max(0, (clientX - box.left) / box.width)) : 0;
+  return ratio * Number(range.max || 0);
+}
+{
+  const range = document.querySelector<HTMLInputElement>("#detail-seek-range");
+  const bubble = document.querySelector<HTMLElement>("#detail-seek-bubble");
+  const field = document.querySelector<HTMLElement>(".detail-seek-field");
+  if (range && bubble && field) {
+    const showBubble = (clientX: number) => {
+      const seconds = seekRowTimeFromEvent(range, clientX);
+      bubble.textContent = seekTimeText(seconds);
+      bubble.style.left = `${Math.min(100, Math.max(0, ((clientX - range.getBoundingClientRect().left) / Math.max(1, range.getBoundingClientRect().width)) * 100))}%`;
+    };
+    field.addEventListener("pointermove", (event) => {
+      // Nothing to preview while the row is empty: no bubble over a dead slider.
+      const row = document.querySelector<HTMLElement>("#detail-seek");
+      if (row?.dataset.empty === "true") return;
+      showBubble(event.clientX);
+    });
+    range.addEventListener("pointerdown", () => {
+      seekingDrag = true;
+    });
+    range.addEventListener("input", () => {
+      seekingDrag = true;
+      bubble.textContent = seekTimeText(Number(range.value));
+    });
+    range.addEventListener("change", () => {
+      seekingDrag = false;
+      player.seek(Number(range.value));
+    });
+    range.addEventListener("pointerup", () => {
+      seekingDrag = false;
+      player.seek(Number(range.value));
+    });
+    range.addEventListener("blur", () => {
+      seekingDrag = false;
+    });
+  }
+}
 
 let lyricScrollFrame = 0;
 // Smooth scrolling here is hand-rolled on purpose. scrollIntoView({smooth}) is
@@ -2075,7 +2269,31 @@ function centerLyricLine(snap: boolean) {
 }
 
 function syncLyricsPosition(currentTime: number) {
-  const index = activeLyricIndex(lyricLines, currentTime);
+  syncSeekRow(currentTime, playerState?.duration ?? 0);
+  // A jump the player has not caught up with yet. While it is set, the line the viewer
+  // clicked stays the active one even though the reported time is still before it — during
+  // playback the seek takes a moment to take effect, and computing from the stale time
+  // flicked the active line to the previous one first (paused, the clock stands still, so
+  // it was always right). It clears as soon as the clock reaches that line, or after a
+  // deadline in case the seek never lands.
+  if (lyricJump && (currentTime >= lyricJump.time || performance.now() > lyricJump.deadline)) {
+    lyricJump = null;
+  }
+  const computed = activeLyricIndex(lyricLines, currentTime);
+  // Harder judge than the app's own clock, which reports the target optimistically and then
+  // travels through everything in between on a long seek: the AUDIO ELEMENT's own currentTime
+  // is the authority. The guard is dropped only when the element has really reached the line
+  // AND the line computed from the clock agrees; the deadline is only a way out if a seek
+  // never lands.
+  const audioTime = document.querySelector<HTMLAudioElement>("audio")?.currentTime ?? 0;
+  if (
+    lyricJump &&
+    ((audioTime >= lyricJump.time && computed >= lyricJump.index) ||
+      performance.now() > lyricJump.deadline)
+  ) {
+    lyricJump = null;
+  }
+  const index = lyricJump && computed < lyricJump.index ? lyricJump.index : computed;
   if (index === activeLyric) return;
   activeLyric = index;
   updateLyricFocus(index);
@@ -2083,6 +2301,11 @@ function syncLyricsPosition(currentTime: number) {
   centerLyricLine(false);
 }
 
+// True while the lyrics card's close animation is running. The panel's own `hidden` is set
+// by the transition at the END of that animation, so without this any sync in between (the
+// lyric clock fires on every line while a song plays) started the close all over again and
+// it never finished.
+let lyricsClosing = false;
 function syncLyricsPanel() {
   const panelElement = document.querySelector<HTMLElement>("#music-lyrics-panel");
   const status = document.querySelector<HTMLElement>("#transport-lyric-status");
@@ -2098,44 +2321,63 @@ function syncLyricsPanel() {
   // see the "stop" action — and the 词 button reopens it whenever there are lyrics.
   const hasLyrics = !!track && lyricLines.length > 0;
   const collapsed = !!preferences.lyricsCollapsed;
+  const shouldShow = hasLyrics && !collapsed && stage.dataset.mode !== "archive";
   const wasHidden = panelElement.hidden;
-  // Collapsed means CLOSED: the card is not drawn at all and the album column comes
-  // back, which is the switch between the album page and the lyrics page. Browsing the
-  // archive hides it too — the card belongs to the album page — and the panel keeps its
-  // measurements for when it comes back.
-  panelElement.hidden = !hasLyrics || collapsed || stage.dataset.mode === "archive";
-  // The status line speaks only when there is nothing else to show.
-  status.hidden = !transportActive || lyricLines.length > 0;
+  // The card enters and leaves from and back to the right (see lyricsPanelTransition):
+  // it owns `hidden`, so the close animates out before the card disappears. The panel
+  // re-measures when the show finishes, which is also when its band finally has a box.
+  if (shouldShow) {
+    if (wasHidden) {
+      lyricsPanelTransition.show(preferences.reduced, syncLyricsPanelAlignment);
+      // Measure NOW as well, not only when the entrance finishes: the panel is laid out
+      // the moment `show` un-hides it, and its entrance only moves it sideways, so the
+      // vertical measurements taken here are already exact. Without this the card painted
+      // its first frame from the previous values — its content and top rule a little too
+      // high — and only settled when the animation ended.
+      syncLyricsPanelAlignment();
+    }
+  } else if (!wasHidden && !lyricsClosing) {
+    // Only kick off a close when the card is actually up AND one is not already running:
+    // the panel's `hidden` is set by the transition at the END of the animation, so any
+    // sync in between (the lyric clock fires on every line while playing) used to start
+    // the close again and again, and it never finished.
+    lyricsClosing = true;
+    lyricsPanelTransition.hide(preferences.reduced, () => {
+      lyricsClosing = false;
+      syncLyricsPanel();
+    });
+  }
+  // The card slides OUT over the album column, so the column must start coming back the
+  // moment the close is asked for — not when the animation ends. Computing these from the
+  // intended state is what makes the two overlap instead of leaving the page blank for the
+  // length of the exit. The body's own `hidden` still waits for the real hide (see
+  // applyLyricsCollapsed), or the card would empty out while it slid.
+  const panelVisible = shouldShow ? true : panelElement.hidden === false && lyricsClosing;
+  syncLyricsSongInfo(track, !hasLyrics || collapsed);
+  stage.dataset.lyricsVisible = String(shouldShow || panelVisible);
+  applyLyricsCollapsed();
+  stage.dataset.lyricsPlaying = String(shouldShow);
+  openLyrics.setAttribute("aria-expanded", String(shouldShow));
+  openLyrics.setAttribute("aria-label", shouldShow ? "收起歌词" : "展开歌词");
+  openLyrics.disabled = !hasLyrics;
+  // The status line speaks only when there is something to say: while nothing is loaded,
+  // not while the track has lyric lines, and NOT while the lyrics have not been looked up
+  // yet — that state used to fall through to "暂无歌词" and flashed for the half second the
+  // .lrc lookup takes.
+  status.hidden =
+    !transportActive || lyricLines.length > 0 || lyricStateText.startsWith("尚未载入");
   // The 词 button carries the state of the CARD, not of the stored preference: it goes
   // to the hover colour only while the card is actually on screen, and its label says
-  // what a click would do. Colouring it from the preference made it go yellow for a
-  // track with no lyrics, or with the transport stopped, where there is nothing to
-  // switch to and the click cannot change anything.
-  openLyrics.setAttribute("aria-expanded", String(!panelElement.hidden));
-  openLyrics.setAttribute("aria-label", panelElement.hidden ? "展开歌词" : "收起歌词");
-  const panelStatus = document.querySelector<HTMLElement>("#lyrics-panel-status");
-  if (panelStatus) panelStatus.textContent = lyricStateText;
+  // what a click would do. Both are written above, from the intended state, so the colour
+  // flips as the close starts rather than when it ends.
+  // The status beside the transport row's controls is the only status line left: the
+  // collapsed card's own line is gone with the card.
   const statusText = lyricStateText.startsWith("正在查找")
     ? "查找歌词…"
     : lyricStateText.startsWith("读取歌词失败")
       ? "歌词读取失败"
       : "暂无歌词";
   if (status.textContent !== statusText) status.textContent = statusText;
-  syncLyricsSongInfo(track, !hasLyrics || !!preferences.lyricsCollapsed);
-  stage.dataset.lyricsVisible = String(!panelElement.hidden);
-  // The card's own state: the toggle's label has to match what is drawn.
-  applyLyricsCollapsed();
-  // While the expanded panel occupies the album column, that column stands down
-  // so the two never draw over each other. Collapsing brings the album back.
-  stage.dataset.lyricsPlaying = String(!panelElement.hidden);
-  // The panel's own measurements need it laid out: on the first expansion it is
-  // still hidden when loadLyrics() measures (its band has no box, so the rule and
-  // the list above it were left at the last values and only settled on the next
-  // render — measured: the rule sat through the middle of the song block until an
-  // album switch). Re-measure on the frame that shows it.
-  if (wasHidden !== panelElement.hidden && !panelElement.hidden) {
-    requestAnimationFrame(() => syncLyricsPanelAlignment());
-  }
 }
 
 // The song playing, shown in the space the collapse toggle leaves on its left.
@@ -2197,8 +2439,7 @@ function applyNameSlides() {
   }
 }
 
-function syncLyricsSongInfo(track: MusicTrack | null | undefined, hide: boolean) {
-  const info = document.querySelector<HTMLElement>("#lyrics-song-info");
+function syncLyricsSongInfo(track: MusicTrack | null | undefined, hide: boolean) {  const info = document.querySelector<HTMLElement>("#lyrics-song-info");
   if (!info) return;
   if (!track || hide) {
     info.hidden = true;
@@ -2471,7 +2712,22 @@ document.addEventListener("click", (e) => {
       break;
     case "seek-lyric": {
       const index = Number(target.dataset.lyricIndex);
-      if (Number.isInteger(index) && lyricLines[index]) player.seek(lyricLines[index].time);
+      if (Number.isInteger(index) && lyricLines[index]) {
+        // Jump to the line, mark it pending while the seek takes effect (see
+        // syncLyricsPosition), and centre at once — a click is a jump, not a scroll.
+        // The 50ms nudge is because a seek to the exact timestamp leaves the player
+        // reporting a time a little before it, which is what flipped the active line.
+        // The deadline is generous on purpose: the farther the jump, the longer the player
+        // takes to actually arrive (the reported time travels through everything in
+        // between), and dropping the guard early is what made far jumps land on the
+        // previous line. Only a seek that never lands waits this long.
+        const jumpTime = lyricLines[index].time + 0.05;
+        lyricJump = { index, time: jumpTime, deadline: performance.now() + 3000 };
+        player.seek(jumpTime);
+        activeLyric = -2;
+        syncLyricsPosition(jumpTime);
+        centerLyricLine(true);
+      }
       break;
     }
     case "queue-prev":
@@ -2489,6 +2745,18 @@ document.addEventListener("click", (e) => {
     case "dismiss-panel":
       closePanel();
       break;
+    case "track-more": {
+      // The chevron's own click: one screen further down the list. Kept deliberately
+      // small and out of the way — the owner is trying the feel of it and will say if it
+      // should go.
+      const scroller = document.querySelector<HTMLElement>("#album-detail-content .album-detail-scroll");
+      if (!scroller) break;
+      scroller.scrollBy({
+        top: Math.round(scroller.clientHeight * 0.9),
+        behavior: lyricsReducedMotion() ? "auto" : "smooth",
+      });
+      break;
+    }
     case "open":
       setMode("detail");
       break;

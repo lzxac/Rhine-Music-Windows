@@ -45,8 +45,14 @@
      expanded lyrics card can end on the same line whatever the track count. The
      value is measured per render (the row height steps with the viewport) and
      written onto the stage: the album column and the lyrics panel are siblings, so
-     a custom property they share has to be declared on their common parent. */
-  --track-reserve: 0px;
+     a custom property they share has to be declared on their common parent.
+     This is therefore only the value for the moment BEFORE the first measurement,
+     which can only be taken once the detail pane is laid out. At zero the band was
+     collapsed on that first paint and the transport row's buttons had nowhere to
+     sit, so the first album opened showed the old layout for about half a second.
+     Two rows at the common sizes, so the first paint is already close to the real
+     thing. */
+  --track-reserve: clamp(88px, 12vh, 150px);
   /* Where the archive text block's left edge falls, as a viewport-anchored length.
      The block is positioned against the page (`68.633333%` of the viewport); the
      navigation row is inset by the page margin, so a percentage against the row
@@ -2541,38 +2547,10 @@
 .music-lyrics-panel[hidden] {
   display: none !important;
 }
-/* Collapsed, the panel becomes a compact card holding just the live line and
-   the load status, so the album column underneath is fully visible again. */
-.music-app[data-lyrics-collapsed="true"] .music-lyrics-panel {
-  bottom: auto;
-  /* The collapsed card is already aligned to the measured album title, because
-     its top is the panel top plus this offset — so the offset stays 0. */
-  top: calc(var(--lyrics-top) + var(--lyrics-collapsed-offset, 0px));
-  /* Same horizontal insets as the expanded panel, so the toggle lands on the
-     same two vertical lines in both states — only the height changes between
-     them. They are the album column's measured insets (see
-     --lyrics-left-pad / --lyrics-right-pad), not a number of their own.
-     The top value is declared as a variable too, because the alignment maths
-     needs it to place the card without reading the live padding (which differs
-     between states). */
-  --lyrics-collapsed-pad-top: 14px;
-  padding: var(--lyrics-collapsed-pad-top) var(--lyrics-right-pad, 0px) 16px var(--lyrics-left-pad, 0px);
-}
-.music-app[data-lyrics-collapsed="true"] .lyrics-band {
-  padding-bottom: 0;
-  border-bottom: 0;
-  /* Collapsed, the whole card moves to the right edge as one block: the toggle     plus the status line and the live lyric line under it. Left, that stack sat
-     over the album text showing through beneath the card; right, the card keeps
-     clear of it. The expanded panel keeps its left alignment, where the lyrics
-     line up with the album column they replace. */
-  align-items: flex-end;
-  text-align: right;
-}
-/* The compact card holds only the toggle, the status and the live line, so the
-   song block stands down with it. */
-.music-app[data-lyrics-collapsed="true"] .lyrics-song-info {
-  display: none;
-}
+/* The old collapsed card is gone: the card is either open or closed, so those styles (a
+   zero-padding band, no rule, right-aligned, the song block hidden) would only ever show
+   for the 240ms of the closing animation — which is exactly the flash of the old look
+   that was reported. Removed rather than kept, because there is no collapsed state left. */
 /* The album column is NOT hidden while the lyrics show. Hiding it also removed
    the cover caption and the credits block, which sit outside the panel's box.
    The panel is opaque and its width is capped at the album switcher, so the
@@ -2728,10 +2706,10 @@
      three-line card and this does not apply. */
   --lyrics-band-min: 0px;
 }
-/* Expanded, the rule at the band's foot lines up with the album column's rule, so
-   the song block above it can carry the album's type sizes without the two views
-   drifting apart. See --lyrics-band-min. */
-.music-app[data-lyrics-collapsed="false"] .lyrics-band {
+/* The band's rule is placed on the album column's rule by min-height, so the song block
+   above it can carry the album's type sizes without the two views drifting apart. The
+   selector keys on the panel being drawn rather than on the retired collapsed state. */
+.music-app .music-lyrics-panel:not([hidden]) .lyrics-band {
   /* border-box, because the number is a distance between two box edges: with the
      default content-box the padding and the rule itself would be added on top of
      it and the rule would land that much too low. */
@@ -2771,31 +2749,6 @@
   --lyrics-bottom: 28px;
   --lyrics-padding: 14px 0;
 }
-.lyrics-toggle {
-  /* Sits on the right edge of the band. Collapsed, the card is a narrow strip
-     over the album column, and the cover caption / album text underneath is on
-     the left — parking the control on the left put it on top of that text. It
-     keeps its own row either way, so it never sits beside the live line. */
-  align-self: flex-end;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-  border-bottom: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 9px;
-  letter-spacing: 0.4px;
-  white-space: nowrap;
-}
-.lyrics-toggle:hover,
-.lyrics-toggle:focus-visible {
-  color: var(--accent);
-}
-/* The toggle and the lyric-size buttons share one row. They are siblings inside
-   this wrapper rather than siblings of each other inside the band, because the
-   band stacks its children in a column: as separate children the two size buttons
-   would add a row and the collapsed card would grow, losing the height it shares
-   with the cover caption in the opposite corner. */
 .lyrics-band-controls {
   align-self: flex-end;
   display: flex;
@@ -2838,42 +2791,16 @@
   color: var(--muted);
   font-size: 11px;
   line-height: 1;
+  /* A fixed width, so switching between the two alignment glyphs cannot change the row's
+     width: the control group is right-aligned, so a narrower button used to shove the size
+     buttons sideways every time the mode was toggled. Sized to sit level with `A－`/`A＋`. */
+  width: 20px;
+  text-align: center;
   transition: color 140ms ease;
 }
 .lyrics-align button:hover,
 .lyrics-align button:focus-visible {
   color: var(--accent);
-}
-.lyrics-toggle-glyph {
-  font-size: 12px;
-  line-height: 1;
-  transition: transform 200ms ease;
-}
-.music-app[data-lyrics-collapsed="true"] .lyrics-toggle-glyph {
-  transform: rotate(180deg);
-}
-.lyrics-panel-status {
-  margin: 0;
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1.5;
-}
-.music-app[data-lyrics-collapsed="false"] .lyrics-panel-status {
-  display: none;
-}
-.lyrics-panel-current {
-  margin: 0;
-  color: var(--ink);
-  /* Scaled with the lyric list, so the collapsed card's live line stays the same
-     size as the expanded lines it replaces. */
-  font-size: calc(clamp(15px, 1.05vw, 21px) * var(--lyrics-font-scale, 1));
-  font-weight: 600;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-  text-wrap: balance;
-}
-.music-app[data-lyrics-collapsed="false"] .lyrics-panel-current {
-  display: none;
 }
 .lyrics-panel-body {
   position: relative;
@@ -3029,8 +2956,13 @@
 .detail-transport {
   position: absolute;
   z-index: 7;
-  left: var(--transport-left, 58%);
-  right: var(--transport-right, 0px);
+  /* Mirrors the album column's own box, exactly as the lyrics panel does (and for the
+     same reason): left/right come from the same three declarations the column uses, so
+     the row is in its final place on the very first paint. Measuring them at runtime left
+     the row drawing from a fallback box — 58% wide-to-the-edge — for the first frame or
+     two, which read as the control bar sliding from the right into the centre. */
+  left: 58%;
+  right: calc(var(--page-margin) + var(--detail-scrollbar));
   bottom: var(--transport-bottom, 52px);
   height: var(--track-reserve, 0px);
   display: flex;
@@ -3039,6 +2971,10 @@
   justify-content: flex-end;
   gap: 4px;
   pointer-events: auto;
+  /* Never spill: a short window gives the band less than the row would like, and the
+     buttons must stay inside it instead of painting over the credits line below. The
+     buttons are pinned to the band's foot, so what gets clipped is the status line. */
+  overflow: hidden;
 }
 /* The controls are a 1fr/auto/1fr grid, so the PLAY button is the row's centre point and
    the two beside it hang symmetrically off it. Centring the group instead (flex
@@ -3046,6 +2982,97 @@
    button's width, so the row read as off-centre and moved whenever a button's width
    changed. The status line sits above the group and never moves it: the group is pinned
    to the foot of the band. */
+/* The seek row: a thin track with a thumb, the elapsed/total time at its ends, and a time
+   bubble while the pointer is over it. It sits in the transport band between the "more
+   tracks" chevron and the status line — the owner's order. Nothing shows a thumb until the
+   row is hovered or focused, so the band stays calm. */
+.detail-seek {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.3px;
+}
+.detail-seek[hidden] {
+  display: none;
+}
+.detail-seek-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.detail-seek-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.detail-seek input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+.detail-seek input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--seek-progress, 0%),
+    color-mix(in srgb, var(--ink) 22%, transparent) var(--seek-progress, 0%)
+  );
+}
+.detail-seek input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 9px;
+  height: 9px;
+  margin-top: -3.5px;
+  border-radius: 50%;
+  background: var(--ink);
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.detail-seek-field:hover input[type="range"]::-webkit-slider-thumb,
+.detail-seek input[type="range"]:focus-visible::-webkit-slider-thumb {
+  opacity: 1;
+}
+.detail-seek-bubble {
+  position: absolute;
+  bottom: 15px;
+  transform: translateX(-50%);
+  padding: 1px 4px;
+  background: var(--ink);
+  color: var(--page-bg);
+  font-size: 9px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.detail-seek-field:hover .detail-seek-bubble {
+  opacity: 1;
+}
+/* Nothing to preview on a dead slider: hover must not raise the bubble while the row is
+   empty. The visibility is owned by the hover rule above, so the guard has to live here —
+   the JS that fills the bubble cannot suppress a rule it does not own. */
+.detail-seek[data-empty="true"] .detail-seek-bubble {
+  opacity: 0;
+}
+/* Nothing to seek through: the row reads as unavailable rather than broken. */
+.detail-seek[data-empty="true"] input[type="range"] {
+  cursor: default;
+  opacity: 0.4;
+}
+@media (prefers-reduced-motion: reduce) {
+  .detail-seek input[type="range"]::-webkit-slider-thumb,
+  .detail-seek-bubble {
+    transition: none;
+  }
+}
 .detail-transport-controls {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -3090,10 +3117,74 @@
 .music-app[data-input="1"] #album-detail-content .track-item:has(.track-row:focus-visible) .track-row {
   outline: none;
 }
+/* "There are more tracks below" — a small chevron at the top of the transport band, i.e.
+   just under the list's visible bottom edge. It lives here (outside the album column)
+   because the column's markup is rebuilt per album; it is only shown while the list
+   really does have more below, and it hides again at the end of the list. Drawn as a
+   shape, not the letter V, in the muted colour, with a gentle bob as the hint. */
+.detail-transport .track-more {
+  /* Pinned to the TOP of the band, i.e. right under the track list's visible bottom edge,
+     and centred in the row's box. Left in the flex column it was pushed up against the
+     controls by justify-content: flex-end, which is not where it belongs.
+     Centred with auto margins, NOT with translateX(-50%): the bob below animates
+     `transform`, and an animated transform replaces the centring shift — which is why the
+     chevron sat to the right of the play button (it kept its left edge on the centre). */
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  width: max-content;
+  margin-inline: auto;
+  display: block;
+  padding: 2px 12px;
+  color: var(--muted);
+  opacity: 0.9;
+  animation: track-more-bob 1.6s ease-in-out infinite;
+}
+.detail-transport .track-more[hidden] {
+  display: none;
+}
+.detail-transport .track-more svg {
+  width: 13px;
+  height: 8px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.detail-transport .track-more:hover {
+  color: var(--accent);
+}
+@keyframes track-more-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .detail-transport .track-more {
+    animation: none;
+  }
+}
 /* Portrait piles the column along the bottom edge with no track-list row to sit in; that
    layout is being reworked on its own, so the row stands down there for now. */
 .music-app[data-layout="portrait"] .detail-transport {
   display: none;
+}
+/* The same two horizontal steps the album column takes, so the row spans the column's box
+   at every width (see the comments above and on .music-lyrics-panel). */
+.music-app[data-layout="desktop"] .detail-transport,
+.music-app[data-layout="compact"] .detail-transport {
+  left: 52%;
+}
+@media (max-width: 1180px) {
+  .detail-transport {
+    left: 56%;
+  }
 }
 /* Compact windows have no room for a right column, so the panel parks itself
    along the bottom edge as a horizontally scrolling band. */
@@ -3109,7 +3200,7 @@
   .music-lyrics-panel .lyrics-band {
     border-bottom: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
   }
-  .music-app[data-lyrics-collapsed="false"] .lyrics-panel-body {
+  .music-lyrics-panel .lyrics-panel-body {
     max-height: 34vh;
   }
   .lyric-line {
