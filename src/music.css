@@ -1414,6 +1414,22 @@
   width: 16px;
   height: 16px;
 }
+/* 音量行：滑块 + 常驻百分比。数值固定宽度、等宽数字，拖动时不会因为 "9%"→"100%" 变宽而
+   让滑块左右跳动。颜色用弱化色，避免和滑块抢视线。 */
+.settings-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+.settings-value {
+  min-width: 38px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-align: right;
+}
 .music-panel .json-editor {
   min-height: 330px;
   font-family: ui-monospace, monospace;
