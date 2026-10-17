@@ -534,6 +534,19 @@ if (hostBridge) {
   const sendWindowAction = (action: string) => hostBridge.postMessage("rhine-window:" + action);
   const isInteractive = (target: EventTarget | null) =>
     target instanceof Element && Boolean(target.closest("button, a, input, select, .theme-switch, .window-controls"));
+  /**
+   * 双击标题栏才最大化的**落点范围**。
+   *
+   * 这个手势本来是为了模仿 Windows 的"双击标题栏最大化/还原"，但早先（dev.6 引入、dev.10 扩展）
+   * 落点判定是**整个 stage**，只要双击处不是按钮/输入框就触发 —— 于是**双击界面任何空白处都会
+   * 最大化或还原**，老板把它当成误触（他的原话："双击界面的任何位置都可以全屏放大或者缩小"）。
+   *
+   * 现在只认真正承担标题栏角色的两块：顶栏 `.music-header` 与窗口标题条 `#window-caption`
+   * —— 也就是本文件里已经挂了 `drag` 手势的那两处。内容区（专辑架、专辑详情、控制栏、面板）
+   * 一律不再响应双击最大化。
+   */
+  const isTitleBar = (target: EventTarget | null) =>
+    target instanceof Element && Boolean(target.closest(".music-header, #window-caption"));
   // The frameless window leaves no non-client border for Windows to hit, and the
   // web view covers the whole client area, so the shell never sees the pointer at
   // the window edge. Detect the edge here and ask the host to start the native
@@ -614,7 +627,7 @@ if (hostBridge) {
         sendWindowAction(doubleClick ? "max" : "resize-" + edge.replace("-", ""));
         return;
       }
-      if (doubleClick && !isInteractive(event.target)) {
+      if (doubleClick && isTitleBar(event.target) && !isInteractive(event.target)) {
         event.preventDefault();
         event.stopPropagation();
         sendWindowAction("max");

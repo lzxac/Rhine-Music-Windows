@@ -113,6 +113,11 @@ assert.ok(musicStyleSource.includes("calc(clamp(15px, 1.05vw, 20px) * var(--lyri
 assert.ok(musicStyleSource.includes('@media (max-width: 780px)'), 'compact windows need a documented fallback for the lyrics panel');
 assert.ok(!musicStyleSource.includes('.music-app[data-lyrics-visible="true"][data-mode="detail"] #album-detail-content'), 'showing lyrics must not change the album column padding, which shifted the detail page content sideways');
 assert.ok(musicStyleSource.includes('#album-detail-content .album-detail-body'), 'the lyrics panel must hide only the album block it covers, not the whole column');
+// 双击最大化只认标题栏。dev.6 引入时把落点挂在**整个 stage** 上，于是双击界面任何空白处都会
+// 最大化/还原（老板当作误触报了上来）。落点必须经过 isTitleBar —— 它只认 .music-header 与
+// #window-caption，也就是已经挂了 drag 手势的那两块。
+assert.ok(/const isTitleBar = \(target: EventTarget \| null\) =>[\s\S]{0,200}closest\("\.music-header, #window-caption"\)/.test(musicAppSource), 'double-click to maximize must be limited to the title-bar regions');
+assert.ok(musicAppSource.includes('if (doubleClick && isTitleBar(event.target) && !isInteractive(event.target))'), 'the stage-wide double-click maximize must stay removed: it made dblclick anywhere resize the window');
 assert.ok(/data-lyrics-playing="true"\][\s\S]{0,80}\.album-detail-body\s*\{[\s\S]{0,80}visibility: hidden;/.test(musicStyleSource), 'the covered album block must be hidden with visibility, not display:none, which pulled the credits up into the panel');
 assert.ok(musicStyleSource.includes('.lyric-line.active'), 'the active lyric line must be visually distinguished');
 assert.ok(musicStyleSource.includes('@media (prefers-reduced-motion: reduce)'), 'lyric styling must honor the operating-system reduced-motion setting');
