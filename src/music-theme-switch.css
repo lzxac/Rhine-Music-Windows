@@ -115,13 +115,9 @@
   gap: 1px;
 }
 
-.music-app[data-layout="portrait"] .music-topnav .minimal-transport button:not(.transport-track) {
+.music-app[data-layout="portrait"] .music-topnav .minimal-transport button {
   flex: 0 0 24px;
   width: 24px;
-}
-
-.music-app[data-layout="portrait"] .music-topnav .transport-track {
-  margin-right: -1px;
 }
 
 .music-app[data-layout="portrait"] .library-status {

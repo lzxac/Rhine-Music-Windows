@@ -2,8 +2,9 @@ import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promises as fs, createReadStream } from 'node:fs'
-import { MusicLibraryStore, safeRootList } from './music-library.mjs'
+import { MusicLibraryStore, safeRootList, commentIdentityOf } from './music-library.mjs'
 import { PlaylistStore } from './playlists.mjs'
+import { CommentStore } from './comments.mjs'
 
 const PROJECT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.woff': 'font/woff', '.woff2': 'font/woff2', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.opus': 'audio/ogg', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' }
@@ -111,10 +112,21 @@ export async function createMusicServer({
   defaultRoots = process.env.MUSIC_ROOTS ? process.env.MUSIC_ROOTS.split(path.delimiter).filter(Boolean) : [],
   store: providedStore,
   playlistStore: providedPlaylistStore,
+  commentStore: providedCommentStore,
   autoScan = true,
 } = {}) {
   const store = providedStore ?? await new MusicLibraryStore({ dataDir, defaultRoots }).init()
   const playlists = providedPlaylistStore ?? await new PlaylistStore({ dataDir: store.dataDir }).init()
+  // 听后感按**元数据标识**（歌名|歌手|专辑|时长）存，不按文件路径 —— 曲目 id 是路径哈希，
+  // 挪动文件就会变。标识只有服务端算得出来（它持有曲库索引），所以由这里注入；客户端始终只传
+  // trackId，路由和前端都不用改。`identify` 返回 null（不在索引里）时存储会退回按 id 存。
+  const commentTrackIds = store.index.albums.flatMap((album) => album.tracks.map((track) => track.id))
+  const commentStore = (providedCommentStore ??
+    new CommentStore({
+      dataDir: store.dataDir,
+      identify: (trackId) => commentIdentityOf(store, trackId),
+    })).withTrackIds(commentTrackIds)
+  const comments = providedCommentStore ?? await commentStore.init()
   const server = http.createServer(async (request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff')
     response.setHeader('Referrer-Policy', 'same-origin')
@@ -214,6 +226,21 @@ export async function createMusicServer({
       }
       const lyrics = /^\/api\/lyrics\/(track-[A-Za-z0-9-]+)$/.exec(route)
       if (lyrics && get) return json(response, 200, await readTrackLyrics(store, lyrics[1]))
+      // 本机听后感：按曲目存，写在应用数据目录（不动用户的音乐文件夹）。
+      const commentOne = /^\/api\/comments\/(track-[A-Za-z0-9-]+)\/([A-Za-z0-9-]{24})$/.exec(route)
+      if (commentOne && request.method === 'DELETE') {
+        await comments.remove(commentOne[1], commentOne[2])
+        return json(response, 200, { ok: true, comments: comments.list(commentOne[1]) })
+      }
+      const commentTrack = /^\/api\/comments\/(track-[A-Za-z0-9-]+)$/.exec(route)
+      if (commentTrack) {
+        if (get) return json(response, 200, { trackId: commentTrack[1], comments: comments.list(commentTrack[1]) })
+        if (request.method === 'POST') {
+          const value = await bodyJson(request)
+          const entry = await comments.add(commentTrack[1], value?.text)
+          return json(response, 201, { comment: entry, comments: comments.list(commentTrack[1]) })
+        }
+      }
       if (route === '/api/foobar/status' && get) return json(response, 200, { configured: !!store.config.foobarBaseUrl, baseUrl: store.config.foobarBaseUrl, connected: false, note: 'configured 仅代表已保存地址；连接状态需读取 /api/foobar/player 实际响应。' })
       if (route.startsWith('/api/foobar/')) {
         if (!store.config.foobarBaseUrl) return json(response, 503, { error: 'foobar2000 / Beefweb 尚未配置连接' })

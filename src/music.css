@@ -896,7 +896,12 @@
 .track-row {
   width: 100%;
   display: grid;
-  grid-template-columns: 23px minmax(0, 1fr) 40px 38px;
+  /* 行号 | 名称 | 格式 | 时长 | **原编号**。
+     最后一列回答"这行除了是列表第几行，它在原专辑里是第几首" —— 排序按原编号、显示用行号，
+     两者都给才不会有歧义（「枫」排在最前，行号 01，而原编号是 06）。
+     字面是「编号：06」/「编号：未知」，所以列宽按最宽的那一个留（9px 字体下"编号：未知"
+     约 45px，加左右余量）。 */
+  grid-template-columns: 23px minmax(0, 1fr) 40px 38px 72px;
   gap: 9px;
   align-items: center;
   text-align: left;
@@ -914,6 +919,17 @@
   font-size: 9px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+/* 原专辑编号。比行号更弱一档：它是"出处信息"，不是这一行的身份。
+   字面是「编号：06」/「编号：未知」，已经自解释，所以不再需要 title 提示。
+   文字选不中，避免拖选行内容时被带上。 */
+.track-original {
+  font-size: 9px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+  white-space: nowrap;
+  user-select: none;
 }
 .track-name {
   min-width: 0;
@@ -2968,7 +2984,12 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
+  /* 控制组在保留带内**垂直居中**，不再贴底。
+     带子的底边由 `--transport-bottom`（视口底 → 制作人员顶边）决定、高度由 `--track-reserve`
+     决定，所以"带子里居中"就等于"在**曲目列表底边 ↔ 制作人员顶边**之间居中" —— 正是主人要的
+     "上移一点、整体更和谐"。原来这里是 flex-end，控制组压在带子底部，上方因此空得多。
+     只改对齐，不动带子的位置与高度，所以列表可见区与歌词卡的对齐都不受影响。 */
+  justify-content: center;
   gap: 4px;
   pointer-events: auto;
   /* Never spill: a short window gives the band less than the row would like, and the
@@ -3074,22 +3095,727 @@
   }
 }
 .detail-transport-controls {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  /* A flex row with the transport pinned to the row's centre by geometry, not by track
+     sizing. The grid version this replaces was fragile in two separate ways: a `1fr`
+     track's minimum is `auto`, so a narrow window grew the tracks past the container and
+     dropped the right group onto a second row (the two-line bar the owner saw at 863px);
+     and once that was forced back with `grid-auto-flow: column`, the centre group's own
+     `1fr auto 1fr` collapsed and play measured 138px off-centre. `left: 50%` cannot drift:
+     it is the row's centre by definition. */
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   width: 100%;
+  /* 两端对齐**带子自身的内容边界**（即 .detail-transport 的左右边，线上就是那条控制区的左右
+     两端）。曾经往这里加过 39px 左右内边距，想对齐"进度条滑杆"的两端 —— 方向错了：滑杆之所以
+     内缩 39px，是被两端的时间标签 `00:01 / 03:54` 占掉的，带子本身没有内边距。
+     也不用 gap：容器的 gap 会在**绝对定位的中央组**前后各留一份，实测两端各多缩 8px。 */
+  position: relative;
 }
-.detail-transport-controls > #transport-lyrics-open {
-  justify-self: end;
-  margin-right: 22px;
+.detail-transport-controls > .transport-main {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
-.detail-transport-controls > #play-pause {
-  justify-self: center;
+.detail-transport-controls > .transport-side {
+  min-width: 0;
 }
-.detail-transport-controls > #stop-playback {
-  justify-self: start;
-  margin-left: 22px;
+/* Three groups: the two sides take the ends of the row, and the transport is lifted out of
+   the flow onto the row's centre. The sides never wrap or grow tracks, so adding a control
+   to either one cannot push play off centre. */
+.transport-side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
+.transport-side-left {
+  /* 顶到带子的**左内容边界**（与进度条那一行的左端、也就是控制区的左端同一条线）。
+     必须用 margin:auto：容器的 `space-between` 在这个容器上不肯贴边 —— 实测把两端设成
+     flex-start/flex-end 之后，两组仍各被推向中间 91px；换 margin:auto 才真正顶住。 */
+  justify-content: flex-start;
+  margin-right: auto;
+}
+.transport-side-right {
+  /* 顶到右内容边界，理由同上。 */
+  justify-content: flex-end;
+  margin-left: auto;
+  gap: 4px;
+}
+.transport-main {
+  /* Plain centred flex: the group is positioned on the row's centre by its own
+     `left: 50%` (see .detail-transport-controls), so nothing inside it has to compensate
+     for how many buttons sit either side of play. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+/* The centre column must FIT its three buttons, not absorb the remaining width, and the
+   two side columns must reserve the same room — otherwise the group is centred but the
+   play button inside it is not, which is what the row's owner actually asked for
+   (measured: a fourth button in this group pushed play 15.5px left of the row centre). */
+.detail-transport-controls > .transport-main {
+  grid-column: 2;
+  width: max-content;
+}
+.detail-transport-controls::before,
+.detail-transport-controls::after {
+  content: "";
+  grid-row: 1;
+}
+.detail-transport-controls::before {
+  grid-column: 1;
+}
+.detail-transport-controls::after {
+  grid-column: 3;
+}
+/* Every plain icon control shares one square box, so the row's rhythm does not depend on
+   which glyph is inside it and a disabled button cannot drift out of line. */
+.detail-transport .transport-icon-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 定位上下文：角标要贴在按钮右上角（见 .transport-badge）。 */
+  position: relative;
+  /* 角标会**故意探出按钮盒子**（右上角），所以这里不能裁剪 —— 按钮的 29px 方形只是命中区，
+     图标本身只有 16px，角标压在它的右上角上才不挡图标。 */
+  overflow: visible;
+  width: 29px;
+  height: 29px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  cursor: pointer;
+}
+.detail-transport .transport-icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+/* 图标的**角标**（条数）。主人的要求是"有的话显示条数，没有就是一个完整的气泡图标"，
+   所以没有条数时整块 `hidden`，不显示 0（平时图标保持干净）。
+
+   实现方式：**不是给每个数字画图标**（那要画到 999+），而是图标本体固定、右上角**叠一段文本**。
+   网易云也是这个做法 —— 它的数字看起来"长在图标上"，其实就是文本压在图标右上角。
+
+   尺寸按主人反馈缩小：8px 字号、约 10px 见方，只探出图标一点点。为了不压住图标本身，
+   这里**不用实心胶囊背景**（那会把图标右上角啃掉一块），改用"描边字"：主题强调色 + 一圈浅色
+   描边，浅色背景与深色主题下都读得清。 */
+.transport-badge {
+  position: absolute;
+  /* 压在图标**右上角**上，像网易云那样"长在角上"：数字的右缘探出图标右缘、下缘压住图标顶边，
+     而不是浮在图标上方或盖住图标中心。
+     按钮 29px、图标 16px 居中 → 图标在按钮内 (6.5…22.5) 的方块；所以：
+       距按钮顶 3px  → 数字（10px 高）的下缘压在图标顶边（6.5px）附近
+       距按钮右 0px  → 数字右缘与按钮右缘齐平，也就是探出图标右缘约 6px
+     这两个值都是相对 29px 按钮的偏移，换主题/换图标尺寸时仍按比例成立。 */
+  /* 位置由**对照图选出来的**：把 top/right 试了 0/2/4px 四组，各截一张并排比较，
+     `top: 4px; right: 0` 是唯一"数字压在图标右上角、只探出一点点"的那组，最接近主人的参考图。
+     光靠读 CSS 推算老是偏（我先试过 2px 与 6px，一次浮在图标上方、一次盖住气泡中心）。 */
+  top: 4px;
+  right: 0;
+  min-width: 10px;
+  padding: 0 1px;
+  background: none;
+  color: var(--accent);
+  /* 描边代替背景：四个方向各画一层同色阴影，把数字从底下的图标线条里"抠"出来。 */
+  text-shadow:
+    -1px 0 0 var(--surface),
+    0 1px 0 var(--surface),
+    1px 0 0 var(--surface),
+    0 -1px 0 var(--surface);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  line-height: 10px;
+  text-align: center;
+  pointer-events: none;
+}
+.transport-badge[hidden] {
+  display: none;
+}
+/* 最右侧那个「更多」的图标要**顶到按钮盒子的右缘**：按钮是 29px、图标只有 16px，
+   图标居中后离盒子右缘还差 6.5px，于是"按钮贴边了、你却看到圆点没贴边"（主人正是这么发现的）。
+   负外边距只抵消这一颗按钮的图标内缩，不影响其它按钮的居中。 */
+.detail-transport #transport-more {
+  margin-right: -6.5px;
+}
+.detail-transport .transport-icon-button:hover:not(:disabled) {
+  color: var(--accent);
+}
+/* The speaker carries more weight than the other glyphs, the way NetEase's does: it reads a
+   size larger and slightly heavier, so the 词 character beside it stops dwarfing it. Only the
+   rendered size changes — the icon's geometry and normalising transform are untouched. */
+.detail-transport #transport-volume-button svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.8;
+}
+/* A feature that does not exist yet must read as unavailable, never as a dead control:
+   dimmed AND disabled, with the reason in its tooltip. */
+.detail-transport .transport-icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.transport-format {
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* A fixed slot, always present and always legible. `display: none` (what `hidden` gives)
+     removed the label from the row until a track loaded, which shifted every control to its
+     right — the same layout jump as the status line below. Fixed width as well, so a longer
+     code such as FLAC cannot push the buttons either.
+     Shaped after NetEase's 本地/音质 chip: a small rounded hairline badge (measured 16px
+     tall on their control bar) rather than bare text, so it reads as a control. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 38px;
+  height: 18px;
+  border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
+  border-radius: 4px;
+}
+/* Nothing loaded yet: the slot says 音质 instead of sitting empty, which is both a clearer
+   label and the thing the owner asked for. No `.is-silent` state any more — an empty chip
+   was itself the complaint. */
+.transport-format.is-empty {
+  opacity: 0.55;
+}
+/* Volume: a button that opens a short slider. The slider is positioned absolutely so
+   opening it cannot reflow the row and move the centred play button. */
+.transport-volume {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+/* The chip floats above the speaker, and the pointer has to cross the space between them to
+   reach it. That space belongs to no element, so leaving the button fired pointerleave and
+   the panel vanished under the owner's cursor before he could drag it. The bridge is an
+   invisible, generous hover target spanning the paperclip gap; the popover itself sits above
+   it, so the pointer is continuous from the speaker into the slider. */
+.transport-volume-bridge {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 44px;
+  pointer-events: auto;
+}
+.transport-volume-popover {
+  /* `fixed`, not absolute: the transport band is `overflow: hidden`, so a panel floating above
+     the speaker was CLIPPED at the band's top edge — its upper third vanished and the pointer
+     that travelled up to it landed on the album scroller underneath (elementFromPoint proved
+     it), which is exactly why the slider disappeared as the owner reached for it. Fixed
+     positioning escapes that clip; the app writes top/left from the speaker's own rect, and
+     keeps re-centring it on the speaker while it is open. */
+  position: fixed;
+  z-index: 6;
+  /* 竖着的音量条, after NetEase: it drops down from the speaker, the readout sits under the
+     track, and the whole chip is the hover target so the pointer can travel from the icon
+     into the slider without crossing a gap. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  /* Narrower padding than the row's other chips would suggest: the rotated slider's wrapper is
+     26px wide, and padding on top of that made the panel 48px across — visibly fatter than the
+     音质 chip it sits beside (38px). Target width now matches that chip. */
+  padding: 7px 5px 5px;
+  min-width: 38px;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: 4px;
+}
+.transport-volume-popover[hidden] {
+  display: none;
+}
+.transport-volume-value {
+  font-size: 9px;
+  letter-spacing: 0.3px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.transport-volume-track {
+  /* Holds the rotated slider's space. A rotated range still OCCUPIES its unrotated box
+     (88px wide), which would have made the chip 124px across; this wrapper pins the layout
+     box to the visual one. It is deliberately wider than the bare 16px slider: rotated, the
+     slider's cross-axis is only its unrotated HEIGHT, so a 16px-tall input gave a 16px-wide
+     grab column and a pointer walking up from the speaker slipped past it
+     (measured: elementFromPoint hit the album scroller at y=738 while the panel was open).
+     The height is kept near NetEase's chip (their track measures ~67px): the popover has to
+     fit INSIDE the transport band, because the band is `overflow: hidden` and anything above
+     it is clipped — an earlier 88px track made the chip 122px tall, its top 33px were cut
+     away, and the pointer hit the album scroller instead of the slider. */
+  display: block;
+  position: relative;
+  width: 26px;
+  height: 58px;
+}
+.transport-volume-popover input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  /* A vertical range: the track is laid out horizontally and then rotated, which is the only
+     way WebKit renders a vertical slider (there is no `vertical` value that works). Its height
+     becomes the grab column after rotation, so it is wider than the 2px line it draws. */
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 58px;
+  height: 22px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+.transport-volume-popover input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 1px;
+  /* Filled track, as NetEase draws it: the part below the thumb (the volume actually dialled
+     in) takes the accent colour and the rest stays muted, so the value is readable from the
+     track alone. `--volume-fill` is the percentage and is written by the app; the accent stop
+     is repeated at the same position so the colour change is a hard edge rather than a fade. */
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--volume-fill, 65%),
+    color-mix(in srgb, var(--ink) 22%, transparent) var(--volume-fill, 65%),
+    color-mix(in srgb, var(--ink) 22%, transparent) 100%
+  );
+}
+.transport-volume-popover input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+/* 已喜欢的红心：填成暖橙，与进度条已播部分、悬停态同一支颜色。未喜欢时保持描边墨色，
+   所以"点亮"是一眼可辨的状态差，而不是只有一点色相偏移。 */
+.detail-transport #transport-like.is-liked {
+  color: var(--accent);
+}
+.detail-transport #transport-like.is-liked svg {
+  fill: currentColor;
+}
+
+/* 控制栏最左侧的「歌名·歌手」（网易云也是把曲目信息放在这一头）。两行：歌名在上、歌手在下，
+   歌名更大。名称过长时**截断加省略号**并把完整内容放进 title —— 曾经做过"横向滚动完整显示"
+   的版本（滚动时不能出现省略号、字号不能变），但那套动效跟着已删除的模块一起没了；这里先用
+   简单可靠的截断。要恢复滚动请单独提，那需要把动效重建一遍。 */
+.transport-track {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  max-width: 190px;
+  min-width: 0;
+  margin-right: 4px;
+  overflow: hidden;
+}
+.transport-track[hidden] {
+  display: none;
+}
+.transport-track strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transport-track small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 程序内弹窗（新建歌单 / 删除确认）。取代 window.prompt 与 window.confirm：原生弹窗是
+   浏览器样式的，和这套界面不是一回事，而且会阻塞整个页面。视觉沿用侧栏面板那一套。 */
+.music-dialog {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+}
+.music-dialog[hidden] {
+  display: none;
+}
+.music-dialog-scrim {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(4, 12, 19, 0.25);
+  backdrop-filter: blur(8px);
+}
+.music-dialog-card {
+  width: min(420px, 100%);
+  padding: 24px 26px 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.13);
+}
+.music-dialog-card h2 {
+  margin: 0 0 10px;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+.music-dialog-text {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.music-dialog-card input[type="text"] {
+  display: block;
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  font-size: 12px;
+}
+.music-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.music-dialog-actions button {
+  padding: 7px 14px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+.music-dialog-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* 危险操作（删除）单独着色，避免和普通确认混淆。 */
+.music-dialog-actions .primary-button.is-danger {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.music-dialog-actions .primary-button.is-danger:hover {
+  background: var(--accent);
+  color: var(--surface);
+}
+
+/* 「更多」菜单：结构照网易云那一列（若干组，组间细线）。当前每一项都置灰，
+   所以这里也把置灰态做得清楚 —— 文字与图标都降透明度、不响应鼠标，而不是只靠 disabled。 */
+.transport-more-menu {
+  min-width: 190px;
+}
+.transport-more-menu .transport-menu-group {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+.transport-more-menu .transport-menu-group + .transport-menu-group {
+  border-top: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.transport-more-item {
+  gap: 8px;
+  justify-content: flex-start;
+  color: var(--ink);
+}
+/* 文字必须**紧贴图标**：`.transport-menu-item` 是 space-between，而这里只有「歌手/专辑」
+   两项才有右侧信息列，其余项没有那个元素，space-between 就会把文字推到最右边
+   （实测截图上文字离图标很远）。让文字吃掉中间空间，信息列再用 margin-left:auto 靠右。 */
+.transport-more-item .transport-menu-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+}
+.transport-more-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* 置灰项也要有"跟随悬停"的高亮行，而且**用当前主题的暖色**（--accent），和界面其余部分一致：
+   暖昼是 #b56834、薄暮是 #4e7588、深夜是 #d9ad7d —— 主题一换，这里自动跟着换。
+   我最初特意禁掉了高亮，理由是"高亮会让人以为能点"；但参照图里灰项确实带高亮，而且**用户正是
+   靠它才能跟住光标落在哪一行**。指针保持默认箭头、点击也不触发，所以不会误导。 */
+.transport-more-item:disabled:hover,
+.transport-more-item:disabled:focus-visible {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.transport-more-leading {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+.transport-more-leading svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+.transport-more-value {
+  margin-left: auto;
+  max-width: 96px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 听后感（评论）面板：与歌词面板**并列的第三个视图**，占同一块区域（专辑详情 ↔ 歌词 ↔ 评论）。
+   定位：左右与顶边用 `--detail-region-*`（由 syncLyricsPanelAlignment 按专辑列几何写在 #stage 上），
+   **底边**直接用 `--lyrics-bottom` —— 也就是**和歌词面板同一条底边**（曲目列表底边，正好在控制栏之上）。
+   我最初让它占"整块区域"（`--detail-region-bottom`），结果它一直伸到控制栏上面（实测评论底 880，
+   控制栏是 757…880，而歌词底正好 757）。主人指出这一点：要与曲目列表底边/歌词面板一致。
+   为什么左右顶不能直接用 `--lyrics-*`：那四个变量只写在 `.music-lyrics-panel` 的规则里，
+   评论面板拿不到（实测会退成 l:0 r:157），而且歌词的 bottom 是给卡片留过高度的值。
+   结构照网易云评论页：顶部曲目信息 + 条数 → 中间列表 → 底部发布区。
+   本地化差异：只有本机自己写的评论，所以每条只留删除（不做点赞/回复/分享这类社区入口）。 */
+.music-comments-panel {
+  position: absolute;
+  z-index: 6;
+  top: var(--detail-region-top, 170px);
+  left: var(--detail-region-left, 58%);
+  right: var(--detail-region-right, 0px);
+  bottom: var(--lyrics-bottom, 52px);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 16px 0 18px;
+}
+.music-comments-panel[hidden] {
+  display: none;
+}
+.comments-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  /* 与歌词面板顶部那条长横线同一个角色：把曲目信息和下面的内容分开。 */
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+}
+.comments-song {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.comments-song > strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comments-song > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comments-count {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+/* 列表吃掉中间的空间并自己滚动。注意是 `flex: 1` + 发布区 `margin-top: auto`：
+   **`flex:1` 才让发布区钉在面板底部**（评论少时不会浮在中间），而列表自身高度自适应。 */
+.comments-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+}
+.comments-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+/* 发布区钉在面板底部（评论少时列表会被撑开，发布区不会浮到中间）。
+   `margin-top: auto` 与列表的 `flex:1` 一起保证这一点，同时列表自身从顶部开始排。 */
+.comments-compose {
+  flex: none;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.comments-compose textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+.comments-compose-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.comments-status {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comments-compose-actions .primary-button {
+  flex: none;
+}
+
+/* 听后感（评论）：一条一张卡，正文在上、时间与删除在下。沿用面板既有的墨色/弱化色，
+   不引入新色，免得它看起来像另一套界面。 */
+.comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.comment-card {
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border-radius: 4px;
+}
+.comment-text {
+  margin: 0 0 6px;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.6;
+  /* 保留用户输入的换行；长串不换行的字符也要能断，否则会把面板撑宽。 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.comment-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.comment-meta button {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+.comment-meta button:hover {
+  color: var(--accent);
+}
+
+/* 「我喜欢的音乐」在侧栏里是受保护的一张：不给改名/删除，用一行说明替代那两个控件。 */
+.playlist-protected {
+  margin: 0;
+  padding: 2px 0 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+/* 「收藏到歌单」菜单。fixed 定位：控制带是 overflow: hidden，absolute 浮层会被裁剪，
+   而裁剪掉的部分连指针都落不到（音量条踩过同一个坑）。left/top 由 positionTransportMenu 写。 */
+.transport-menu {
+  position: fixed;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  max-width: 260px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: 4px;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.transport-menu[hidden] {
+  display: none;
+}
+.transport-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  color: var(--ink);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.transport-menu-item:hover,
+.transport-menu-item:focus-visible {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.transport-menu-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transport-menu-count {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+}
+/* 新建项与列表之间用一条细线分开，避免误点 */
+.transport-menu-new {
+  margin-top: 3px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: 0 0 3px 3px;
+}
+.transport-menu-empty {
+  margin: 0;
+  padding: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 /* Holding the card open keeps the 词 button in its hover colour, so the control bar says
    which of the two views is showing; closing it goes back to the default ink. The state
    comes from the card actually being on screen (see syncLyricsPanel), not from the
@@ -3097,11 +3823,6 @@
 .detail-transport #transport-lyrics-open[aria-expanded="true"] {
   color: var(--accent);
   opacity: 1;
-}
-/* The current track's name button is still what the transport writes into, so it stays in
-   the DOM and is simply not shown — the owner asked for the row to be 词 / play / stop. */
-.detail-transport #transport-track {
-  display: none;
 }
 /* Focus rings wait for the first real input (the markInput listeners in music-app.ts):
    opening the detail view focuses its own content, which Chromium treats as keyboard
@@ -3217,6 +3938,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The row keeps its height even with nothing to say, so the seek row above it cannot move.
+   `visibility` (not `display`) is what reserves the space — `display: none` is exactly the
+   behaviour that pushed the progress bar up when playback started. */
+.transport-lyric-status.is-silent {
+  visibility: hidden;
+}
 .music-topnav .minimal-transport button.transport-lyrics-open {
   width: auto;
   min-width: 0;
@@ -3256,6 +3983,12 @@
    put, down to the column's scroll height. */
 .music-app[data-mode="detail"][data-lyrics-visible="true"][data-lyrics-playing="true"]
   #album-detail-content .album-detail-body {
+  visibility: hidden;
+}
+/* 听后感面板显示时，专辑列**整个**退让：它占的正是这一列，而面板的头部就从列顶开始，
+   只藏 .album-detail-body 不够 —— 专辑标题与发行信息仍在面板底下，截图里能看到"测试专辑"
+   和评论内容叠在一起。歌词面板只藏 body 是因为它的卡片从标题下方开始，评论面板不是。 */
+.music-app[data-mode="detail"][data-comments-visible="true"] #album-detail-content {
   visibility: hidden;
 }
 @media (max-width: 700px) {

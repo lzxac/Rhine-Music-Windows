@@ -1,10 +1,15 @@
 import type { MusicTrack } from "./music-types";
 
+/** 播放模式. `list` wraps the queue, `single` repeats the current track, `shuffle` picks a
+ *  random other track, `sequential` stops at the end instead of wrapping. */
+export type PlayMode = "list" | "single" | "shuffle" | "sequential";
+
 export interface MusicPlayerState {
   transport: "idle" | "loading" | "playing" | "paused" | "error";
   currentTrack: MusicTrack | null;
   queue: readonly MusicTrack[];
   currentIndex: number;
+  playMode: PlayMode;
   playing: boolean;
   loading: boolean;
   duration: number;
@@ -23,8 +28,20 @@ export interface MusicPlayerState {
 type Listener = (state: MusicPlayerState) => void;
 type Transport = MusicPlayerState["transport"];
 type Fade = { timer: ReturnType<typeof setTimeout>; finish: () => void };
-
 const SONG_FADE_MS = 450;
+/**
+ * 淡变曲线。线性增益在 t=0 处斜率最大（1/DURATION），听感是"音量被硬推上来"——主人反馈
+ * 起播那一下过渡不自然，就是这个原因。改为感知曲线，两端斜率都为 0：
+ *   淡入 p²            （开头极平缓，中点 0.25，听感像"自然浮现"）
+ *   淡出 1-(1-p)²      （末尾平缓收敛，不会"突然刹住"）
+ * 两个函数都从 0 单调升到 1，作为"完成度"直接乘进 start + (target-start)*t。
+ * 注意：这里必须返回**完成度**而不是"剩余比例"——早先写成淡出返回 (1-p)²，那个值从 1 降到 0，
+ * 代进公式就把淡出算成了淡入（增益从 0 涨到满值），实测曲线 0→0.071→0.147… 一路上升。
+ */
+const fadeCurve = (progress: number, rising: boolean) => {
+  const p = unit(progress);
+  return rising ? p * p : 1 - (1 - p) * (1 - p);
+};
 const unit = (value: number) => Math.max(0, Math.min(1, value));
 const seconds = (value: number) =>
   Number.isFinite(value) && value > 0 ? value : 0;
@@ -68,6 +85,7 @@ export class MusicPlayer {
       currentTrack: null,
       queue: [],
       currentIndex: -1,
+      playMode: "list",
       playing: false,
       loading: false,
       duration: 0,
@@ -236,6 +254,9 @@ export class MusicPlayer {
       this.releaseSong();
     }
     const audio = this.song ?? this.createSong(track);
+    // 继续播放也要淡入。元素此刻还是暂停的，而 fadeSong 在 audio.paused 时会直接跳到
+    // 目标值，所以起点必须在这里设好；等 play() 之后元素就不再暂停了，那时才设置会被跳过。
+    if (resume && this.value.songFadeEnabled) this.setSongGain(0);
 
     // A shared transition promise keeps rapid BGM toggles from bypassing this silence gate.
     await this.reconcileBgm();
@@ -254,8 +275,12 @@ export class MusicPlayer {
         this.emit();
         if (request !== this.operation || this.disposed || this.song !== audio)
           return;
-        if (this.value.songFadeEnabled) await this.fadeSong(audio, 1);
-        else this.setSongGain(1);
+        if (this.value.songFadeEnabled) {
+          // On RESUME the gain was reset to 0 just above so the fade has somewhere to come
+          // from; on a fresh load createSong() already parked it at 0. Either way the sound
+          // ramps up instead of appearing at full level.
+          await this.fadeSong(audio, 1);
+        } else this.setSongGain(1);
       }
     } catch (error) {
       if (request !== this.operation || this.disposed || this.song !== audio)
@@ -268,11 +293,20 @@ export class MusicPlayer {
     if (this.disposed) return;
     if (this.transport === "loading" || this.transport === "playing") {
       ++this.operation;
+      const song = this.song;
+      // 淡出后再暂停, so the click does not clip the sound off mid-note. The fade's promise
+      // settles even when it is cancelled (its `finish` resolves), so awaiting it cannot hang;
+      // releaseSong() cancels any fade anyway, hence the `.catch`.
+      if (song && !song.paused && !song.ended && this.value.songFadeEnabled) {
+        await this.fadeSong(song, 0).catch(() => {});
+      }
       this.cancelSongFade();
       this.transport = "paused";
       this.song?.pause();
       if (this.songTrackId !== this.value.currentTrack?.id) this.releaseSong();
-      else this.setSongGain(1);
+      // 暂停后不要用 setSongGain(1) 把音量恢复：那会撤销刚做完的淡出，让暂停瞬间"跳回"
+      // 满音量，继续播放时也就只能靠 play() 里补设 0 才有淡入。停在淡出的终点才是对的 ——
+      // 元素是暂停的，增益为 0 听不见，而 play() 会从这个 0 一路淡回来。
       this.value.playing = false;
       this.value.loading = false;
       this.emit();
@@ -283,24 +317,92 @@ export class MusicPlayer {
     if (track) await this.play(track.id);
   }
 
+  /** Which track follows the current one, by 播放模式. Returns null when nothing should
+   *  follow — the end of the queue in `sequential`, or an empty/one-track queue in
+   *  `shuffle` (there is no OTHER track to pick). */
+  /**
+   * 下一首是谁。`manual` 区分**用户点的「下一首」**与**曲目自然播完**：
+   *
+   * 单曲循环只该决定"唱完之后自动做什么"，不该限制用户手动切歌 —— 主流播放器都是这样，
+   * 主人也明确指出了这一点（原先共用一个分支，导致单曲循环下点「下一首」毫无反应）。
+   * 手动切歌在队尾**回绕**，与 `list` 的语义一致：按了就该有下一首。
+   */
+  private advanceTrackId(manual = false): string | null {
+    const queue = this.value.queue;
+    const index = this.value.currentIndex;
+    const current = this.value.currentTrack;
+    if (!current || index < 0 || !queue.length) return null;
+    if (manual) return queue[index + 1]?.id ?? queue[0]?.id ?? null;
+    switch (this.value.playMode) {
+      case "single":
+        return current.id;
+      case "shuffle": {
+        const others = queue.filter((track) => track.id !== current.id);
+        if (!others.length) return null;
+        return others[Math.floor(Math.random() * others.length)].id;
+      }
+      case "sequential":
+        return queue[index + 1]?.id ?? null;
+      case "list":
+      default:
+        // Wrap at the end, which is what makes a queue loop.
+        return queue[index + 1]?.id ?? queue[0]?.id ?? null;
+    }
+  }
+
+  setPlayMode(mode: PlayMode): void {
+    if (this.disposed || this.value.playMode === mode) return;
+    this.value.playMode = mode;
+    this.emit();
+  }
+
   async next(): Promise<void> {
     if (this.disposed) return;
-    const track = this.value.queue[this.value.currentIndex + 1];
-    if (track) await this.play(track.id);
+    // manual: 用户点的「下一首」，不受单曲循环限制（见 advanceTrackId）。
+    const id = this.advanceTrackId(true);
+    if (id) await this.play(id);
     else this.stop();
   }
 
+  /**
+   * 上一首。**直接切歌**，不因当前进度而"先回到开头"。
+   *
+   * 原先有一条常见播放器的规则：播放超过 3 秒时按「上一首」先回到本曲开头（`currentTime > 3`
+   * 就 seek(0)），要点到进度归零之后才会切歌。主人明确不要这个行为 —— "正常切上一首，不管当前
+   * 播放进度到哪，直接切了"，车载播放器也是这样。
+   *
+   * 代价说清楚：原规则是"重播当前曲"的唯一入口（停止按钮已经不在界面上了），删掉它就没有这个
+   * 快捷方式了 —— 想重播可以用进度条拖回开头，或者用播放模式里的单曲循环。
+   * 保留 shuffle 的随机回退：向前是随机的，向后不该反而沿着历史倒着走回去。
+   */
   async previous(): Promise<void> {
     if (this.disposed) return;
-    if (this.value.currentTime > 3 && this.song) {
+    // 随机步进, so going back is also random rather than retracing the forward history.
+    if (this.value.playMode === "shuffle") {
+      const others = this.value.queue.filter((track) => track.id !== this.value.currentTrack?.id);
+      if (others.length) {
+        await this.play(others[Math.floor(Math.random() * others.length)].id);
+        return;
+      }
+    }
+    const track = this.value.queue[Math.max(0, this.value.currentIndex - 1)];
+    if (!track) return;
+    // 队首按「上一首」＝**重播本曲**（没有上一首可去）。这里必须显式要求回到开头：
+    // play() 对同一首歌走的是"继续播放"分支（resume 会保留当前进度），所以只调 play(id)
+    // 等于什么都没发生 —— 主人报的正是"第一首按上一首不会重播"。
+    //
+    // 注意**不要**在这里把 pendingSeek 清掉：这个值是由运行时的 media 事件异步消费的
+    // （见 applyPendingSeek 的调用点），play() 返回时它还没被用上；早先我在这里写了一句
+    // `this.pendingSeek = null`，等于把"回到开头"的意图擦掉，于是跳到 61 秒后按上一首
+    // 仍然是 61 秒（实测 61→63）。清理交给运行时那条路径。
+    if (track.id === this.value.currentTrack?.id) {
+      // 必须走 seek()，不能只写 pendingSeek：play() 对同一首歌走 resume 分支，那个分支
+      // **不会调用 seek()**，所以 pendingSeek 永远不会被应用到音频元素上 —— 实测状态里的
+      // currentTime 归零了，而 audio.currentTime 仍在 61 秒（就是"看着重播了、其实没有"）。
       this.seek(0);
       return;
     }
-    const track = this.value.queue[Math.max(0, this.value.currentIndex - 1)];
-    if (track) {
-      if (track.id === this.value.currentTrack?.id) this.seek(0);
-      await this.play(track.id);
-    }
+    await this.play(track.id);
   }
 
   seek(position: number): void {
@@ -443,7 +545,10 @@ export class MusicPlayer {
         return;
       ++this.operation;
       this.cancelSongFade();
-      this.setSongGain(1);
+      // 这里原先调 setSongGain(1)：元素是暂停的，没有声音，所以当时看不出问题。但那会让
+      // 暂停期间的增益停在满值，继续播放时 sound 会立刻以满音量出现（淡入失效）。改为保留
+      // 淡出的终点 0，play() 再从 0 淡回来。
+      if (this.songTrackId !== this.value.currentTrack?.id) this.setSongGain(1);
       this.transport = "paused";
       this.value.playing = false;
       this.value.loading = false;
@@ -461,10 +566,12 @@ export class MusicPlayer {
       this.value.playing = false;
       this.value.loading = false;
       this.value.currentTime = this.value.duration;
-      const next = this.value.queue[this.value.currentIndex + 1];
-      if (next) {
-        // No idle intermediate state, so BGM never appears between songs.
-        void this.play(next.id);
+      const nextId = this.advanceTrackId();
+      if (nextId) {
+        // No idle intermediate state, so BGM never appears between songs. What comes next
+        // is 播放模式's job, so a single-track 单曲循环 really does loop and a `sequential`
+        // queue really does stop.
+        void this.play(nextId);
       } else {
         ++this.operation;
         this.transport = "idle";
@@ -532,7 +639,7 @@ export class MusicPlayer {
       const step = () => {
         if (this.songFade !== fade) return;
         const progress = Math.min(1, (performance.now() - startedAt) / SONG_FADE_MS);
-        this.setSongGain(start + (target - start) * progress);
+        this.setSongGain(start + (target - start) * fadeCurve(progress, target >= start));
         if (progress < 1) fade.timer = setTimeout(step, 16);
         else {
           this.songFade = undefined;

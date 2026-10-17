@@ -15,6 +15,23 @@ const normalized = (value) => text(value).normalize('NFKC').toLocaleLowerCase().
 // trim, Unicode compatibility-normalize, and case-fold, but keep punctuation
 // and interior whitespace so distinct titles do not collapse accidentally.
 export const normalizeAlbumName = (value) => text(value).normalize('NFKC').toLocaleLowerCase('en-US').normalize('NFKC')
+// 听后感（评论）的**歌曲标识**：由元数据构成，不含任何路径，所以**移动/重命名文件都不会断链**
+// —— 曲目 id 是按文件路径哈希的（`track-${hash(file)}`），挪一次位置就变，评论会失联。
+//
+// 规范化**故意偏弱**：只做 Unicode 兼容归一 + 去首尾空白 + 小写 + 折叠内部连续空白。
+// 保留标点很重要 —— 用更强的规则（像上面 `normalized` 那样把标点符号全删掉）会把
+// "Song (Live)" 和 "Song Live" 合成同一首，**误合并比失联更糟**（两条评论会串在一起）。
+export const commentIdentity = (title, artist, album, duration) => {
+  const fold = (value) => text(value).normalize('NFKC').toLowerCase().replace(/\s+/g, ' ')
+  const seconds = Number.isFinite(Number(duration)) ? Math.round(Number(duration)) : 0
+  return [fold(title), fold(artist), fold(album), seconds].join('|')
+}
+export const commentIdentityOf = (store, trackId) => {
+  const record = store?.trackRecord?.(trackId)
+  if (!record) return null
+  const track = record.track ?? {}
+  return commentIdentity(track.title, track.artist, record.albumTitle, track.duration)
+}
 const pathIsWithin = (root, file) => {
   const relative = path.relative(path.resolve(root), path.resolve(file))
   return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))

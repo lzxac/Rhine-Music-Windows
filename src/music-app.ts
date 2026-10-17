@@ -7,7 +7,6 @@ import "./music.css";
 import "./music-playlists.css";
 import "./music-navigation-motion.css";
 import "./music-navigation-ruler.css";
-import "./music-transport-title.css";
 import "./music-theme.css";
 import "./music-theme-switch.css";
 import { DocumentDecryption } from "./document-decryption";
@@ -31,7 +30,7 @@ import {
   type QualityPreset,
   type RenderQuality,
 } from "./render-quality";
-import { MusicPlayer, type MusicPlayerState } from "./music-player";
+import { MusicPlayer, type MusicPlayerState, type PlayMode } from "./music-player";
 import { ModelViewer } from "./model-viewer";
 import { TerminalAudio } from "./audio";
 import type {
@@ -40,13 +39,13 @@ import type {
   MusicLibrary,
   MusicPlaylist,
   MusicTrack,
+  ListeningComment,
   GenreRules,
 } from "./music-types";
 import { demoAlbums, demoGenres } from "./demo-library";
 import { escapeHtml as esc } from "./html";
 import { albumTitleMarkup, setupMusicTitleLayout } from "./music-title";
 import { setupMusicTextMotion } from "./music-text-motion";
-import { setupTransportTitle } from "./music-transport-title";
 import { setupMusicTicks } from "./music-ticks";
 import { setupMusicRuler } from "./music-ruler";
 import { MusicPresentation, type AlbumSelection } from "./music-presentation";
@@ -73,6 +72,38 @@ const icons = {
   ),
   playlist: svg('<path d="M4 6h12M4 12h12M4 18h8"/><path d="M19 15v6l-2-1.2-2 1.2v-6a2 2 0 1 1 4 0Z"/>'),
   queue: svg('<path d="M4 6h16M4 12h16M4 18h9"/><path d="m17 16 4 2-4 2v-4Z" fill="currentColor" stroke="none"/>'),
+  // 播放模式四个图标：形状用最标准、最常见的样式（圆环双向箭头 / 加 1 / 交叉波浪 / 双直线箭头），
+  // 只在**尺寸**上做归一化 —— 外接盒面积一律 = 200 并居中到 20×20 画布，缩放始终等比
+  // （sx = sy），所以形状绝不拉伸。目标是"常见的标准图标 + 分量一致"，不要为了对齐数字
+  // 去改形状（曾把圆环压成方框、把缺口做成毛球，两次都被用户看出"长歪了"）。
+  repeat: svg('<g transform="translate(0.02 0.02) scale(0.8319)"><path d="M17 3.5 20.5 7 17 10.5"/><path d="M20.5 7H8.5A4.5 4.5 0 0 0 4 11.5"/><path d="M7 20.5 3.5 17 7 13.5"/><path d="M3.5 17h12A4.5 4.5 0 0 0 20 12.5"/></g>'),
+  repeatOne: svg('<g transform="translate(0.02 0.02) scale(0.8319)"><path d="M17 3.5 20.5 7 17 10.5"/><path d="M20.5 7H8.5A4.5 4.5 0 0 0 4 11.5"/><path d="M7 20.5 3.5 17 7 13.5"/><path d="M3.5 17h12A4.5 4.5 0 0 0 20 12.5"/><path d="M11.6 10.6 13 9.9V15"/></g>'),
+  shuffle: svg('<g transform="translate(-1.44 -0.40) scale(0.9458)"><path d="M3.5 7h3.2c1.2 0 2.2.6 2.9 1.6l3 4.8c.7 1 1.7 1.6 2.9 1.6h4"/><path d="M17 12.5 20.5 15 17 17.5"/><path d="M3.5 17h3.2c1.2 0 2.2-.6 2.9-1.6l.7-1.1"/><path d="m13.3 8.9.5-.7c.7-1 1.7-1.6 2.9-1.6h4"/><path d="M17 4.5 20.5 7 17 9.5"/></g>'),
+  sequential: svg('<g transform="translate(-0.04 0.16) scale(0.8199)"><path d="M3.5 7h17"/><path d="M17.5 3.5 21 7l-3.5 3.5"/><path d="M3.5 17h17"/><path d="M17.5 13.5 21 17l-3.5 3.5"/></g>'),
+  // 收藏到歌单: a list with a plus. Distinct from both the queue list and the top bar's
+  // "add to playlist" music-note glyph.
+  playlistAdd: svg('<path d="M4 6h11M4 12h11M4 18h7"/><path d="M18 13v7M14.5 16.5h7"/>'),
+  prev: svg('<path d="M18 6v12L9 12Z" fill="currentColor" stroke="none"/><rect x="5" y="6" width="2.5" height="12" rx="1" fill="currentColor" stroke="none"/>'),
+  next: svg('<path d="M6 6v12l9-6Z" fill="currentColor" stroke="none"/><rect x="16.5" y="6" width="2.5" height="12" rx="1" fill="currentColor" stroke="none"/>'),
+  heart: svg('<path d="M12 20s-7-4.5-7-9.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 7 3.5C19 15.5 12 20 12 20Z"/>'),
+  // 「更多」菜单的图标，按网易云那一列补齐：下载 / 分享 / 一起听 / 倍速 / 歌手 / 专辑 /
+  // 音效 / 购买 / 减少推荐。这些项当前都不可用（见 renderMoreMenu），但图标先备齐，
+  // 将来平台化时直接在既有结构上接功能即可。
+  download: svg('<path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/>'),
+  share: svg('<circle cx="6.5" cy="12" r="2.5"/><circle cx="17.5" cy="6" r="2.5"/><circle cx="17.5" cy="18" r="2.5"/><path d="m8.8 10.8 6.4-3.6M8.8 13.2l6.4 3.6"/>'),
+  together: svg('<circle cx="9" cy="8.5" r="3"/><path d="M3.8 19.5a5.4 5.4 0 0 1 10.4 0"/><path d="M16 6.2a3 3 0 0 1 0 5.6"/><path d="M17.2 14.6a5.4 5.4 0 0 1 3 4.9"/>'),
+  speed: svg('<path d="M5.2 18.5a7.5 7.5 0 1 1 13.6 0Z"/><path d="m12 15 3.4-4"/>'),
+  artist: svg('<circle cx="12" cy="8" r="3.5"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/>'),
+  album: svg('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.2"/><path d="M12 4a8 8 0 0 0 0 16"/>'),
+  effects: svg('<path d="M6 4v14.2"/><path d="M6 20.2a2.4 2.4 0 1 1 0-4.8 2.4 2.4 0 0 1 0 4.8Z"/><path d="M6 8.4C10.5 8.4 12 4 18 4v5c-6 0-7.5 4.4-12 4.4"/>'),
+  cart: svg('<path d="M4 5h2.2l2 9.5h9.3l2-6.8H7"/><circle cx="9" cy="19" r="1.4"/><circle cx="16.5" cy="19" r="1.4"/>'),
+  reduce: svg('<circle cx="12" cy="12" r="8"/><path d="m6.5 17.5 11-11"/>'),
+  comment: svg('<path d="M4 6h16v10H9l-4 3v-3H4Z"/>'),
+  volume: svg('<path d="M4 10v4h3l4 3V7L7 10H4Z" fill="currentColor" stroke="none"/><path d="M14 9.2A3.6 3.6 0 0 1 14 14.8"/><path d="M16.8 7A7.2 7.2 0 0 1 16.8 17"/>'),
+  // 静音：同一个喇叭，波弧换成叉。0% 时用它替换上面的图标，所以喇叭本体必须逐点一致 ——
+  // 切换时才只有"波弧变叉"，锥体不会跳动。
+  volumeMuted: svg('<path d="M4 10v4h3l4 3V7L7 10H4Z" fill="currentColor" stroke="none"/><path d="M13.6 10.4 18.4 15.2"/><path d="M18.4 10.4 13.6 15.2"/>'),
+  more: svg('<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>'),
   settings: svg(
     '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.5" fill="var(--surface)"/><circle cx="15" cy="17" r="2.5" fill="var(--surface)"/>',
   ),
@@ -81,6 +112,14 @@ const icons = {
   windowMax: svg('<rect x="6" y="6" width="12" height="12" rx="1"/>'),
   windowClose: svg('<path d="m6 6 12 12M18 6 6 18"/>'),
 };
+/** 播放模式 in the order the button cycles them, with the label it announces. Order matters:
+ *  it is both the cycle and the list the transport button walks. */
+const PLAY_MODES: { mode: PlayMode; label: string; icon: string }[] = [
+  { mode: "list", label: "循环播放", icon: icons.repeat },
+  { mode: "single", label: "单曲循环", icon: icons.repeatOne },
+  { mode: "shuffle", label: "随机播放", icon: icons.shuffle },
+  { mode: "sequential", label: "顺序播放", icon: icons.sequential },
+];
 const read = <T>(key: string, fallback: T): T => {
   try {
     return JSON.parse(localStorage.getItem(key) || "null") ?? fallback;
@@ -103,18 +142,23 @@ const preferences = {
     qualityRevision: 1,
     reduced: false,
     volume: 0.65,
+    // 静音前的音量。单击喇叭切换静音；恢复时回到这个值, as NetEase does. Kept in the
+    // preferences so a reload while muted still restores the level the user had chosen.
+    volumeBeforeMute: 0.65,
     songFade: true,
     bgm: true,
     bgmVolume: 0.18,
     sound: true,
     soundVolume: 0.22,
     renderQuality: undefined as RenderQuality | undefined,
-    lyricsCollapsed: false,
     // Multiplier on the lyric text, kept as an index so the steps are the ones
     // listed in LYRIC_SIZES rather than an arbitrary slider value.
     lyricsSize: 0,
     // "left" (the layout the panel shipped with) or "center".
     lyricsAlign: "left" as LyricAlign,
+    // 播放模式, restored across sessions. `list` wraps the queue, which is what the player
+    // did before the button existed.
+    playMode: "list" as PlayMode,
   },
   ...read<
     Partial<{
@@ -123,15 +167,16 @@ const preferences = {
       quality: QualityPreset;
       reduced: boolean;
       volume: number;
+      volumeBeforeMute: number;
       songFade: boolean;
       bgm: boolean;
       bgmVolume: number;
       sound: boolean;
       soundVolume: number;
       renderQuality: RenderQuality;
-      lyricsCollapsed: boolean;
       lyricsSize: number;
       lyricsAlign: LyricAlign;
+      playMode: PlayMode;
     }>
   >("rhine-music-preferences", {}),
 };
@@ -332,6 +377,9 @@ const player = new MusicPlayer({
   bgmEnabled: preferences.bgm,
   bgmVolume: preferences.bgmVolume,
 });
+// The stored mode has to reach the player before anything can advance, or a restored
+// 单曲循环 would behave like a list queue until the button was pressed once.
+player.setPlayMode(preferences.playMode);
 const themeNames: Record<Theme, string> = {
   day: "暖昼",
   dusk: "薄暮",
@@ -350,6 +398,41 @@ stage.className = "music-app";
 // syncLyricsPosition, and a `let` declared further down would throw a TDZ ReferenceError at
 // boot instead.
 let lyricJump: { index: number; time: number; deadline: number } | null = null;
+// 两个右列面板（歌词 / 听后感）的开关状态与"正在收起"标志，**同样必须留在模块顶部**。
+//
+// 原因和上面 `lyricJump` 一模一样：`syncLyricsPanel()` 在模块求值期间就会被播发器的 subscribe
+// 回调调用一次，而它会读这几个标志（并调用 syncCommentsView）。任何一个 `let` 声明写在那个
+// 调用点之后，初始化那次就会撞上 TDZ —— 实测症状是整个应用卡在启动转圈，控制台报
+// `Cannot access '…' before initialization`。我为此连续错了两轮（先挪到函数前，仍然不够早）。
+//
+// 另外：这些是**内存标志**，故意不做成持久化偏好。歌词那边早先用持久化标志当开关，那个值一旦
+// 被置为 true 就会永久挡住面板（重启也不恢复），主人遇到过"有歌词的歌点了词没反应"。
+let lyricsPanelRequested = false;
+/**
+ * 歌词面板是否**被允许**显示。听后感面板打开时置 false —— 两者占同一块区域，必须互斥。
+ *
+ * 之所以用一个独立标志、而不是"互相调用去收掉对方"：那种写法在 syncCommentsView 与
+ * syncLyricsPanel 之间成环，实测直接 `RangeError: Maximum call stack size exceeded`。
+ * 现在是单向的：评论打开 → 把歌词的许可收回 → 调用一次 syncLyricsPanel 让它按新许可对账。
+ */
+let lyricsAllowed = true;
+let lyricsClosing = false;
+let commentsRequested = false;
+let commentsClosing = false;
+// 听后感面板的其余状态。**全部必须在这里声明**，理由同上：`syncCommentsButton()` 会被播放器的
+// 状态监听器在**模块求值期间**调用一次，它读这几个值。声明写在下面就会 TDZ —— 我为此连踩三次，
+// 而这次的症状尤其隐蔽：监听器抛错后**曲库渲染中断**（页面显示 0 ALBUMS、0 张专辑卡片），
+// 表现完全不像面板的问题，我花了一轮才定位到。
+/** 当前曲目的听后感条数，供控制栏角标显示（面板没开也要准）。 */
+let transportCommentCount = 0;
+/** 面板加载的代次（防止并发加载把新列表覆盖成旧的）。 */
+let commentsLoadToken = 0;
+/** 角标计数的代次（连续换歌时只允许最后一次请求的结果写入）。 */
+let commentsCountToken = 0;
+/** 已经为哪一首取过条数，避免每次同步都重复请求。 */
+let commentsCountTrackId: string | null | undefined = undefined;
+/** 面板当前显示的是哪一首（换歌时用它判断要不要重新加载）。 */
+let commentsTrackId: string | null = null;
 stage.dataset.mode = "archive";
 stage.dataset.theme = preferences.theme;
 // Running inside the Windows launcher (WebView2) exposes the host bridge; the
@@ -391,6 +474,31 @@ stage.innerHTML = `
       <div id="lyric-list" class="lyric-list" tabindex="0" role="group" aria-label="歌词，点击一行可跳转到该时间"></div>
     </div>
   </aside>
+  <!--
+    听后感（评论）面板：和歌词面板**并列的第三个视图**，占同一块区域（专辑详情 ↔ 歌词 ↔ 评论）。
+    结构照网易云评论页的元素排：顶部曲目信息 + 条数 → 中间评论列表 → 底部发布区。
+    网易云是整页，我们只占右列那个区域（主人的要求）。
+    本地化差异照实处理：只有本机自己写的评论，所以没有点赞/回复/分享这类需要社区的入口
+    （不做死图标），每条只留删除。
+  -->
+  <aside id="music-comments-panel" class="music-comments-panel" aria-label="听后感" hidden>
+    <div class="comments-head">
+      <div class="comments-song">
+        <strong id="comments-song-title"></strong>
+        <span id="comments-song-artist"></span>
+      </div>
+      <span class="comments-count" id="comments-count">全部评论 0</span>
+    </div>
+    <div class="comments-body" id="comments-body"></div>
+    <div class="comments-compose">
+      <label class="field-label" for="comment-text">写点什么<span>最多 2000 字</span></label>
+      <textarea id="comment-text" rows="2" maxlength="2000" placeholder="这一首给你的感觉…"></textarea>
+      <div class="comments-compose-actions">
+        <p id="comment-status" class="comments-status" role="status" aria-live="polite">正在读取…</p>
+        <button class="primary-button" data-action="add-comment">发布评论</button>
+      </div>
+    </div>
+  </aside>
   <div id="library-status" class="library-status"><i></i><span>正在读取本地音乐索引</span></div>
   <section id="music-browse" class="music-browse" aria-label="专辑浏览">
     <div class="music-browse-veil" aria-hidden="true"></div>
@@ -409,13 +517,16 @@ stage.innerHTML = `
   </section>
   <section id="music-detail" class="music-detail" aria-label="专辑详情" hidden>
     <button class="music-back" data-action="back">← 返回专辑架 <kbd>ESC</kbd></button>
-    <div class="minimal-transport detail-transport" role="group" aria-label="音乐播放"><button type="button" id="track-more" class="track-more" data-action="track-more" aria-label="下面还有曲目" hidden><svg viewBox="0 0 12 7" aria-hidden="true" focusable="false"><path d="M1 1l5 5 5-5" /></svg></button><div class="detail-seek" id="detail-seek"><span class="detail-seek-time" id="detail-seek-current">00:00</span><div class="detail-seek-field"><input type="range" id="detail-seek-range" min="0" max="0" step="0.1" value="0" aria-label="播放进度"><span class="detail-seek-bubble" id="detail-seek-bubble">00:00</span></div><span class="detail-seek-time" id="detail-seek-total">00:00</span></div><span id="transport-lyric-status" class="transport-lyric-status" role="status" aria-live="polite" hidden></span><div class="detail-transport-controls"><button type="button" data-action="locate-playing" id="transport-track" class="transport-track" aria-label="定位当前歌曲" aria-hidden="true" disabled><span id="transport-track-label"></span></button><button type="button" id="transport-lyrics-open" class="transport-lyrics-open" data-action="lyrics-panel" aria-expanded="false">词</button><button data-action="play-pause" id="play-pause" aria-label="播放" aria-pressed="false"><span class="transport-glyph transport-play" aria-hidden="true">${icons.play}</span><span class="transport-glyph transport-pause" aria-hidden="true">${icons.pause}</span></button><button data-action="stop" id="stop-playback" aria-label="停止">${icons.stop}</button></div></div>
+    <div class="minimal-transport detail-transport" role="group" aria-label="音乐播放"><button type="button" id="track-more" class="track-more" data-action="track-more" aria-label="下面还有曲目" hidden><svg viewBox="0 0 12 7" aria-hidden="true" focusable="false"><path d="M1 1l5 5 5-5" /></svg></button><div class="detail-seek" id="detail-seek"><span class="detail-seek-time" id="detail-seek-current">00:00</span><div class="detail-seek-field"><input type="range" id="detail-seek-range" min="0" max="0" step="0.1" value="0" aria-label="播放进度"><span class="detail-seek-bubble" id="detail-seek-bubble">00:00</span></div><span class="detail-seek-time" id="detail-seek-total">00:00</span></div><span id="transport-lyric-status" class="transport-lyric-status is-silent" role="status" aria-live="polite" aria-hidden="true"></span><div class="detail-transport-controls"><div class="transport-side transport-side-left"><span class="transport-track" id="transport-track"><strong id="transport-track-title"></strong><small id="transport-track-artist"></small></span><button type="button" class="transport-icon-button" data-action="like" id="transport-like" aria-label="我喜欢的音乐" aria-pressed="false" disabled>${icons.heart}<span class="transport-badge" id="transport-like-badge" hidden></span></button><button type="button" class="transport-icon-button" data-action="comments" id="transport-comments" aria-label="听后感" aria-expanded="false" disabled>${icons.comment}<span class="transport-badge" id="transport-comments-badge" hidden></span></button><button type="button" class="transport-icon-button" data-action="play-mode" id="transport-play-mode" data-mode="list" aria-label="播放模式：循环播放" title="播放模式：循环播放">${icons.repeat}</button></div><div class="transport-side transport-main"><button type="button" data-action="track-prev" id="track-prev" class="transport-icon-button" aria-label="上一首">${icons.prev}</button><button data-action="play-pause" id="play-pause" aria-label="播放" aria-pressed="false"><span class="transport-glyph transport-play" aria-hidden="true">${icons.play}</span><span class="transport-glyph transport-pause" aria-hidden="true">${icons.pause}</span></button><button type="button" data-action="track-next" id="track-next" class="transport-icon-button" aria-label="下一首">${icons.next}</button></div><div class="transport-side transport-side-right"><button type="button" data-action="queue" id="transport-queue" class="transport-icon-button" aria-label="播放队列" aria-expanded="false">${icons.queue}</button><span class="transport-format is-empty" id="transport-format" aria-label="音质">音质</span><button type="button" data-action="add-to-playlist" id="transport-add-playlist" class="transport-icon-button" aria-label="收藏到歌单" aria-expanded="false" disabled>${icons.playlistAdd}</button><button type="button" id="transport-lyrics-open" class="transport-lyrics-open" data-action="lyrics-panel" aria-expanded="false">词</button><span class="transport-volume"><button type="button" id="transport-volume-button" class="transport-icon-button" aria-label="${`音量：${Math.round(preferences.volume * 100)}%`}" aria-expanded="false">${icons.volume}</button><span class="transport-volume-bridge" aria-hidden="true"></span><span class="transport-volume-popover" id="transport-volume-popover" hidden><span class="transport-volume-track"><input type="range" id="transport-volume" min="0" max="100" step="1" value="${Math.round(preferences.volume * 100)}" aria-label="音量"></span><output class="transport-volume-value" id="transport-volume-value">${Math.round(preferences.volume * 100)}%</output></span></span><button type="button" class="transport-icon-button" data-action="more" id="transport-more" aria-label="更多" aria-expanded="false">${icons.more}</button></div></div></div>
     <div class="card-caption"><span id="detail-card-id"></span><small>拖动卡片，查看完整封面</small></div>
     <article id="album-detail-content" tabindex="-1"></article>
   </section>
   <div id="music-empty" class="music-empty" hidden><small>YOUR PRIVATE COLLECTION</small><h1>让音乐进入这座档案馆。</h1><p>选择本地音乐文件夹，专辑封面会出现在每一张卡片上。</p><button data-action="library">设置音乐文件夹 ↗</button><button data-action="demo" class="subtle">先查看演示封面</button></div>
   <div class="music-bottomline"><span>LOCAL COLLECTION <i>·</i> <span id="library-count">0 ALBUMS</span></span><span id="runtime-info">THREE.JS / LOCAL</span></div>
   <div id="music-panel-root"></div><div id="music-toast" role="status" aria-live="polite"></div>
+  <div id="transport-menu" class="transport-menu" role="menu" aria-label="收藏到歌单" hidden></div>
+  <div id="transport-more-menu" class="transport-menu transport-more-menu" role="menu" aria-label="更多" hidden></div>
+  <div id="music-dialog" class="music-dialog" hidden></div>
   <div id="music-loading"><span class="loading-orbit"></span><strong>OPENING THE ARCHIVE</strong><small>正在载入三维专辑架</small></div>
 `;
 // Apply the stored collapsed state once, before the first paint of the panel.
@@ -534,9 +645,7 @@ stage.dataset.lyricsPlaying = "false";
   window.addEventListener("keydown", markInput, { once: true, capture: true });
   window.addEventListener("pointerdown", markInput, { once: true, capture: true });
 }
-// The card's state for the boot paint: browsing the archive at this point, so the
-// collapsed look, without touching the stored preference.
-applyLyricsCollapsed();
+// 不再需要在启动时设置"收起态外观"：收起态已删除，面板初始就是 hidden（见模板里的 hidden 属性）。
 // The panel now exists, so the stored lyric size can be applied before its first
 // paint instead of flashing at the default size.
 applyLyricSize();
@@ -578,6 +687,213 @@ function notify(message: string) {
 function time(value: number) {
   const n = Math.max(0, Math.floor(value || 0));
   return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+}
+
+// ── ♥ 我喜欢的音乐 ────────────────────────────────────────────────────────────
+// 用一张**特殊歌单**承载"喜欢"，而不是新造一种存储：这样"喜欢的歌"天然出现在歌单侧栏里、
+// 能直接播放、能手写排序，也不必为它单独做一套导出。代价是它和普通歌单同源，所以：
+//   · 侧栏不给它改名/删除（被删掉等于丢掉全部喜欢）
+//   · 它只在第一次点红心时才创建，没点过就不会凭空出现在侧栏里
+const LIKES_PLAYLIST_NAME = "我喜欢的音乐";
+/** 当前曲目是否已被喜欢。缓存的是 trackId 集合，红心状态由它同步，避免每次状态更新都发请求。 */
+const likedTrackIds = new Set<string>();
+
+async function fetchPlaylists(): Promise<MusicPlaylist[]> {
+  const result = await request<{ version: number; playlists: MusicPlaylist[] }>("/api/playlists");
+  return result.playlists;
+}
+
+function isLikesPlaylist(playlist: MusicPlaylist): boolean {
+  return playlist.name === LIKES_PLAYLIST_NAME;
+}
+
+/** 重算喜欢集合。歌单不存在时即为空集（还没喜欢过任何歌）。 */
+async function refreshLikedTracks(): Promise<MusicPlaylist | undefined> {
+  likedTrackIds.clear();
+  try {
+    const likes = (await fetchPlaylists()).find(isLikesPlaylist);
+    for (const entry of likes?.tracks ?? []) likedTrackIds.add(entry.trackId);
+    syncLikeButton();
+    return likes;
+  } catch {
+    // 读不到就当作"未知"，红心回到未点亮，而不是停在上一次的错觉上。
+    syncLikeButton();
+    return undefined;
+  }
+}
+
+/** 红心按钮的视觉与可访问性状态，都由当前曲目是否在喜欢集合里决定。 */
+function syncLikeButton() {
+  const button = document.querySelector<HTMLButtonElement>("#transport-like");
+  if (!button) return;
+  const track = playerState?.currentTrack;
+  const liked = !!track && likedTrackIds.has(track.id);
+  button.classList.toggle("is-liked", liked);
+  button.disabled = !track;
+  button.setAttribute("aria-pressed", String(liked));
+  button.setAttribute("aria-label", liked ? "取消喜欢" : "我喜欢的音乐");
+  button.title = track
+    ? liked
+      ? "取消喜欢"
+      : "加入我喜欢的音乐"
+    : "播放一首歌后才能喜欢";
+  // 角标：本机只可能是 0/1。以后做成在线版时，这里换成服务端的人数即可（结构不用改）。
+  setTransportBadge("#transport-like-badge", liked ? 1 : 0);
+}
+// ── 「收藏到歌单」菜单 ──────────────────────────────────────────────────────────
+// 挂在 data-action="add-to-playlist" 上的小菜单：单击图标 → 选一张歌单 → 把当前曲目加进去。
+// 用 position: fixed，因为控制带是 overflow: hidden（音量条那里已经踩过这个坑：浮层会被裁剪，
+// 被裁剪的部分连指针都落不到）。
+let transportMenuOpen = false;
+let transportMenuClosing = 0;
+let moreMenuOpen = false;
+const transportMenuElement = () => $("#transport-menu");
+
+/** 把菜单放到锚点按钮附近。fixed 定位：控制带是 overflow: hidden，绝对定位的浮层会被裁剪，
+ *  而**被裁掉的部分连指针都落不到**（音量条那里已经踩过一次）。 */
+function positionTransportMenu(anchor: HTMLElement, menu: HTMLElement) {
+  const rect = anchor.getBoundingClientRect();
+  const width = menu.offsetWidth;
+  const height = menu.offsetHeight;
+  // 水平优先与按钮**右对齐**：菜单比按钮宽，左对齐时如果靠近视口右缘就会被夹住而整体左移，
+  // 看起来像飘在按钮左边。右对齐既能贴住按钮，又只要按钮本身可见就不会越界；最后再兜一层夹取。
+  const rightAligned = rect.right - width;
+  const left = Math.min(Math.max(4, rightAligned), Math.max(4, window.innerWidth - width - 4));
+  // 垂直优先向下弹；下方放不下就翻到上方，保证整块可见（被裁剪的部分点不到）。
+  const below = rect.bottom + 6;
+  const top = below + height <= window.innerHeight - 4 ? below : Math.max(4, rect.top - height - 6);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function renderTransportMenu(playlists: MusicPlaylist[]) {
+  const menu = transportMenuElement();
+  if (!menu) return;
+  const rows = playlists.length
+    ? playlists
+        .map((playlist) => {
+          const count = playlist.tracks?.length ?? 0;
+          return `<button type="button" class="transport-menu-item" role="menuitem" data-action="add-to-playlist-pick" data-playlist="${esc(playlist.id)}"><span class="transport-menu-name">${esc(playlist.name)}</span><span class="transport-menu-count">${count} 首</span></button>`;
+        })
+        .join("")
+    : `<p class="transport-menu-empty">还没有歌单。新建一个即可收藏当前曲目。</p>`;
+  menu.innerHTML = `${rows}<button type="button" class="transport-menu-item transport-menu-new" role="menuitem" data-action="add-to-playlist-new">＋ 新建歌单并收藏</button>`;
+}
+
+async function openTransportMenu(anchor: HTMLElement) {
+  const menu = transportMenuElement();
+  if (!menu) return;
+  if (transportMenuClosing) {
+    clearTimeout(transportMenuClosing);
+    transportMenuClosing = 0;
+  }
+  transportMenuOpen = true;
+  menu.hidden = false;
+  menu.innerHTML = `<p class="transport-menu-empty">正在读取歌单…</p>`;
+  positionTransportMenu(anchor, menu);
+  try {
+    const result = await request<{ version: number; playlists: MusicPlaylist[] }>("/api/playlists");
+    renderTransportMenu(result.playlists);
+    positionTransportMenu(anchor, menu);
+  } catch (error) {
+    menu.innerHTML = `<p class="transport-menu-empty">歌单读取失败：${esc((error as Error).message)}</p>`;
+  }
+}
+
+function closeTransportMenu() {
+  const menu = transportMenuElement();
+  transportMenuOpen = false;
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  $("#transport-add-playlist")?.setAttribute("aria-expanded", "false");
+}
+
+/** 把当前曲目加入指定歌单，并把结果用 toast 说清楚（重复曲目由服务端报 skipped）。 */
+async function addCurrentTrackToPlaylist(playlistId: string, playlistName: string) {
+  const track = playerState?.currentTrack;
+  if (!track) {
+    notify("当前没有在放的曲目，先播放一首再收藏。");
+    return;
+  }
+  try {
+    // 先取一次歌单，好在"服务端什么都没加"时区分两种情况：
+    // 服务端对**已在歌单里的曲目**是静默跳过的（`if (known.has(id)) continue`），既不计入
+    // added 也不计入 skipped，所以重复收藏会返回 { added: 0, skipped: 0 } —— 光看返回值
+    // 分不清"已经有了"和"确实没加成"，会把重复收藏误报成失败。
+    const current = await request<{ playlists: MusicPlaylist[] }>("/api/playlists");
+    const target = current.playlists.find((entry) => entry.id === playlistId);
+    const alreadyIn = !!target?.tracks?.some((entry) => entry.trackId === track.id);
+    const result = await request<{ added: number; skipped: number }>(
+      `/api/playlists/${playlistId}/tracks`,
+      { trackIds: [track.id] },
+    );
+    if (result.added > 0) notify(`已收藏到「${playlistName}」。`);
+    else if (result.skipped > 0 || alreadyIn) notify(`「${playlistName}」里已经有这首了。`);
+    else notify(`没有加入「${playlistName}」，请稍后重试。`);
+    // 歌单侧栏正开着就刷新它，否则用户切过去看到的还是旧内容。
+    if (panel === "playlists") void loadPlaylistPanel();
+    // 如果加进去的正是「我喜欢的音乐」，红心必须跟着亮起来：它是另一条入口，但改的是同一份
+    // 数据。这里按**歌单名**判断（而不是 id），因为红心认的就是这个名字（见 isLikesPlaylist）。
+    if (playlistName === LIKES_PLAYLIST_NAME) await refreshLikedTracks();
+  } catch (error) {
+    notify(`收藏失败：${(error as Error).message}`);
+  }
+}
+
+/** 新建歌单并把当前曲目放进去（一步完成，省得先建再找回来收藏）。 */
+async function createPlaylistWithCurrentTrack(name: string) {
+  const track = playerState?.currentTrack;
+  if (!track) {
+    notify("当前没有在放的曲目，先播放一首再收藏。");
+    return;
+  }
+  try {
+    const created = await request<{ playlist: MusicPlaylist }>("/api/playlists", { name });
+    await request(`/api/playlists/${created.playlist.id}/tracks`, { trackIds: [track.id] });
+    notify(`已新建「${name}」并收藏当前曲目。`);
+    if (panel === "playlists") void loadPlaylistPanel();
+  } catch (error) {
+    notify(`新建歌单失败：${(error as Error).message}`);
+  }
+}
+
+/**
+ * 点亮/取消红心。第一次点亮时才创建「我喜欢的音乐」那张歌单，所以没用过这个功能的人
+ * 不会在侧栏里看到一张空歌单。取消喜欢走 remove-playlist-track 的删除接口。
+ */
+async function toggleLike() {
+  const track = playerState?.currentTrack;
+  if (!track) {
+    notify("当前没有在放的曲目，先播放一首再喜欢。");
+    return;
+  }
+  try {
+    const likes = await refreshLikedTracks();
+    const alreadyLiked = likedTrackIds.has(track.id);
+    if (!likes) {
+      const created = await request<{ playlist: MusicPlaylist }>("/api/playlists", {
+        name: LIKES_PLAYLIST_NAME,
+      });
+      await request(`/api/playlists/${created.playlist.id}/tracks`, { trackIds: [track.id] });
+      notify("已加入我喜欢的音乐。");
+    } else if (alreadyLiked) {
+      // 取消喜欢：按条目 id 删除（服务端的 refId，客户端算不出来，只能从条目里取）。
+      const entry = likes.tracks.find((item) => item.trackId === track.id);
+      if (!entry) {
+        notify("这首歌不在我喜欢的音乐里。");
+        return;
+      }
+      await request(`/api/playlists/${likes.id}/tracks/${entry.id}`, undefined, "DELETE");
+      notify("已从我喜欢的音乐中移除。");
+    } else {
+      await request(`/api/playlists/${likes.id}/tracks`, { trackIds: [track.id] });
+      notify("已加入我喜欢的音乐。");
+    }
+    await refreshLikedTracks();
+    if (panel === "playlists") void loadPlaylistPanel();
+  } catch (error) {
+    notify(`操作失败：${(error as Error).message}`);
+  }
 }
 function genreName(id: string) {
   return genres.find((g) => g.id === id)?.name || "未分类";
@@ -645,6 +961,19 @@ const lyricsPanelTransition = new SurfaceTransition(
   "cubic-bezier(0.22, 1, 0.36, 1)",
   36,
 );
+// 听后感面板用**与歌词面板完全相同**的进出参数：同一块区域的两个视图，切换手感必须一致，
+// 否则"从歌词切到评论"会比"进歌词"慢半拍，看起来像卡了一下。
+const commentsPanelTransition = new SurfaceTransition(
+  $("#music-comments-panel"),
+  $("#music-comments-panel"),
+  320,
+  320,
+  "right",
+  "cubic-bezier(0.22, 1, 0.36, 1)",
+  undefined,
+  "cubic-bezier(0.22, 1, 0.36, 1)",
+  36,
+);
 const browseTransition = new SurfaceTransition(
   $("#music-browse"),
   undefined,
@@ -696,6 +1025,7 @@ const presentation = new MusicPresentation({
     stage.dataset.mode = next;
     syncSelectionMotion();
     syncLyricsPanel();
+    syncCommentsView();
   },
   prepareMenu: () => {
     activeTab = "tracks";
@@ -723,6 +1053,11 @@ const presentation = new MusicPresentation({
     // the same amount. Without it the first album opened painted the fallback reservation
     // and then visibly corrected itself.
     syncLyricsPanelAlignment();
+    // 视图切换后**重新对账两个右列面板**。挂在 setMode 里是刻意为之：面板的可见性同时依赖
+    // "当前是专辑架还是详情页"，而这条依赖只有这里知道得最准。早先只靠间接的调用点，结果是
+    // "退回专辑架再切回详情"时听后感面板不会自动恢复（实测 commentsHidden: true 一直不回来）。
+    syncLyricsPanel();
+    syncCommentsView();
     detail.inert = !!panel;
     detail.setAttribute("aria-hidden", "false");
     content.inert = false;
@@ -983,6 +1318,7 @@ async function applyLibrary() {
   }
   stage.dataset.mode = mode;
   syncLyricsPanel();
+  syncCommentsView();
   $("#music-empty").hidden = albums.length > 0;
   // Ordinary index refreshes must not reveal a page while its peer is exiting.
   if (!ready || !hadAlbums || !albums.length) {
@@ -1005,6 +1341,9 @@ async function applyLibrary() {
   if (mode === "detail" && previousDetail !== JSON.stringify(currentAlbum()))
     renderDetail();
   updateStatus();
+  // 喜欢集合要在这里读一次，否则刷新后红心是灭的（它读的是缓存，不查库就不会亮）。
+  // 不 await：红心晚一拍点亮可以接受，但不能拖慢专辑架的首帧。
+  void refreshLikedTracks();
 }
 function updateStatus() {
   const n = library.albums.length,
@@ -1289,6 +1628,15 @@ function trackList(a: MusicAlbum, discs: number) {
   if (!a.tracks.length)
     return `<div class="empty-tracks"><strong>${demo ? "这是一张封面演示卡片" : "这个专辑还没有可播放曲目"}</strong><p>${demo ? "用于检查封面原始比例与卡片材质。扫描本地音乐库后，这里会显示真实曲目。" : "请检查音乐文件是否完整，并重新扫描音乐库。"}</p><button data-action="library">打开音乐库设置 ↗</button></div>`;
   let disc = -1;
+  // 序号 = **列表里的位置**，永远是 01,02,03… 唯一且连续。
+  //
+  // 为什么不用文件里的 trackNumber 显示：那个值表达的是"在原版专辑里的第几首"，用在**列表**
+  // 里会出三类问题，主人正好撞上第一类：
+  //   ① 同一首歌的不同格式各带同一个编号 → 两行都写 06（「十一月的萧邦」的 `枫` FLAC/WAV）；
+  //   ② 专辑只收录了原专辑的一部分 → 一行显示 05，看起来像丢了 01–04；
+  //   ③ 缺标签的与带标签的混在一列 → 一半空白一半有数字。
+  // 列表序号本来就该回答"这是列表里第几行"。曲目顺序仍由服务端的 trackNumber 排序决定
+  // （见 music-library 的 tracks.sort），所以"专辑内的正确次序"没有丢，只是不再拿它当行号。
   return `<div class="track-list" aria-label="专辑歌曲列表">${a.tracks
     .map((t, index) => {
       const discNo = t.discNumber || 1;
@@ -1297,7 +1645,17 @@ function trackList(a: MusicAlbum, discs: number) {
           ? `<div class="disc-heading">DISC ${String(discNo).padStart(2, "0")}</div>`
           : "";
       disc = discNo;
-      return `${head}<div class="track-item"><button class="track-row" data-track="${esc(t.id)}" ${t.offline ? "disabled" : ""} aria-label="播放 ${esc(t.title)}"><span class="track-number">${String(t.trackNumber || index + 1).padStart(2, "0")}</span><span class="track-name"><strong>${esc(t.title)}</strong><small>${esc(t.artist)}</small></span><span class="track-format">${esc(t.format)}${!t.browserPlayable ? '<i title="需要兼容的播放内核"> ↗</i>' : ""}</span><span class="track-duration">${time(t.duration)}</span></button>${!demo ? `<div class="track-tools"><button data-action="enqueue-track" data-track-id="${esc(t.id)}" ${t.offline ? "disabled" : ""} aria-label="加入播放队列：${esc(t.title)}" title="加入播放队列">＋</button><button data-action="choose-playlist" data-track-id="${esc(t.id)}" aria-label="加入歌单：${esc(t.title)}" title="加入歌单">♫</button></div>` : ""}</div>`;
+      const label = String(index + 1).padStart(2, "0");
+      // 行号回答"列表第几行"，这里再给出**原专辑编号**，两者并存才不会有歧义 ——
+      // 排序按原编号、显示用行号，所以「枫」会排在最前却是 01，而它的原编号是 06。
+      // 主人要求写成 `编号：06` 这种字面样式（含那个全角冒号），没有标签就写"编号：未知"，
+      // 不留空白（空白看起来像渲染出错）。
+      const original =
+        typeof t.trackNumber === "number" && t.trackNumber > 0
+          ? String(t.trackNumber).padStart(2, "0")
+          : "未知";
+      const originalText = `编号：${original}`;
+      return `${head}<div class="track-item"><button class="track-row" data-track="${esc(t.id)}" ${t.offline ? "disabled" : ""} aria-label="播放 ${esc(t.title)}，${esc(originalText)}"><span class="track-number">${label}</span><span class="track-name"><strong>${esc(t.title)}</strong><small>${esc(t.artist)}</small></span><span class="track-format">${esc(t.format)}${!t.browserPlayable ? '<i title="需要兼容的播放内核"> ↗</i>' : ""}</span><span class="track-duration">${time(t.duration)}</span><span class="track-original">${esc(originalText)}</span></button>${!demo ? `<div class="track-tools"><button data-action="enqueue-track" data-track-id="${esc(t.id)}" ${t.offline ? "disabled" : ""} aria-label="加入播放队列：${esc(t.title)}" title="加入播放队列">＋</button><button data-action="choose-playlist" data-track-id="${esc(t.id)}" aria-label="加入歌单：${esc(t.title)}" title="加入歌单">♫</button></div>` : ""}</div>`;
     })
     .join("")}</div>`;
 }
@@ -1408,22 +1766,21 @@ function updatePlayingRows() {
     });
 }
 let lastPlayerError = "";
-const transportTitleMotion = setupTransportTitle(
-  $<HTMLButtonElement>("#transport-track"),
-  $("#transport-track-label"),
-);
-transportTitleMotion.setReduced(preferences.reduced);
 player.subscribe((state) => {
   playerState = state;
   if ((state.currentTrack?.id ?? null) !== lyricTrackId)
     void loadLyrics(state.currentTrack);
   else syncLyricsPosition(player.playbackTime);
   syncLyricsPanel();
+  syncCommentsView();
   syncLyricClock();
   syncQueuePanel();
-  const titleVisible = !!state.currentTrack &&
-    (state.transport === "playing" || state.transport === "paused" || state.transport === "loading");
-  transportTitleMotion.update(state.currentTrack?.title ?? "", titleVisible);
+  syncTransportControls();
+  // 红心跟着当前曲目走：换歌就要重新点亮/熄灭，而它读的是本地缓存的喜欢集合，不发请求。
+  syncLikeButton();
+  syncCommentsButton();
+  syncMoreMenu();
+  syncTransportTrack();
   $("#play-pause").setAttribute("aria-pressed", String(state.playing));
   $("#play-pause").setAttribute(
     "aria-label",
@@ -1484,6 +1841,7 @@ function openPanel(next: Panel) {
     settings: ["SYSTEM SETTINGS", "播放与画质"],
     playlists: ["YOUR PLAYLISTS", "我的歌单"],
     queue: ["UP NEXT", "播放队列"],
+    comments: ["LISTENING NOTES", "听后感"],
   };
   $("#music-panel-root").innerHTML =
     `<div class="music-panel-scrim" data-action="dismiss-panel"><section class="music-panel" role="dialog" aria-modal="true" aria-labelledby="music-panel-title"><div class="panel-heading"><div><small>${titles[next][0]}</small><h2 id="music-panel-title">${titles[next][1]}</h2></div><button data-action="close-panel" aria-label="关闭">×</button></div><div id="panel-body"></div></section></div>`;
@@ -1504,6 +1862,7 @@ function openPanel(next: Panel) {
   if (next === "settings") renderSettingsPanel();
   if (next === "playlists") renderPlaylistPanel();
   if (next === "queue") renderQueuePanel();
+  // 听后感不再走这套模态面板：它是和歌词并列的第三个右列视图（见 syncCommentsView）。
   (
     document.querySelector<HTMLElement>("#album-search") ||
     $("#music-panel-root button")
@@ -1626,8 +1985,449 @@ function renderPlaylistList() {
     const entries = selected
       ? `<div class="playlist-track-list">${playlist.tracks.length ? playlist.tracks.map((track, index) => `<div class="playlist-track ${track.available ? "" : "unavailable"}"><button class="playlist-track-play" data-action="play-playlist-track" data-playlist-id="${esc(playlist.id)}" data-track-id="${esc(track.trackId)}" ${track.available ? "" : "disabled"}><span class="playlist-track-index">${String(index + 1).padStart(2, "0")}</span><span><strong>${esc(track.title)}</strong><small>${esc(track.artist)} · ${esc(track.album || "未知专辑")}</small></span><em>${track.available ? time(track.duration) : "文件不可用"}</em></button><div class="playlist-track-actions"><button data-action="move-playlist-track" data-playlist-id="${esc(playlist.id)}" data-item-id="${esc(track.id)}" data-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="上移 ${esc(track.title)}">↑</button><button data-action="move-playlist-track" data-playlist-id="${esc(playlist.id)}" data-item-id="${esc(track.id)}" data-direction="1" ${index === playlist.tracks.length - 1 ? "disabled" : ""} aria-label="下移 ${esc(track.title)}">↓</button><button data-action="remove-playlist-track" data-playlist-id="${esc(playlist.id)}" data-item-id="${esc(track.id)}" aria-label="从歌单移除 ${esc(track.title)}">×</button></div></div>`).join("") : '<p class="playlist-empty">歌单里还没有歌曲。</p>'}</div>`
       : "";
-    return `<article class="playlist-card ${selected ? "selected" : ""}" data-playlist-card="${esc(playlist.id)}"><div class="playlist-card-heading"><button class="playlist-select" data-action="select-playlist" data-playlist-id="${esc(playlist.id)}" aria-expanded="${selected}"><strong>${esc(playlist.name)}</strong><small>${playlist.tracks.length} 首 · ${availableCount} 首可播放</small></button><button data-action="play-playlist" data-playlist-id="${esc(playlist.id)}" ${availableCount ? "" : "disabled"} aria-label="播放歌单 ${esc(playlist.name)}">${icons.play}</button>${pendingPlaylistTrackId ? `<button data-action="add-pending-playlist" data-playlist-id="${esc(playlist.id)}">添加歌曲</button>` : ""}</div><div class="playlist-card-edit"><input type="text" maxlength="100" value="${esc(playlist.name)}" data-playlist-name="${esc(playlist.id)}" aria-label="修改歌单名称"><button data-action="rename-playlist" data-playlist-id="${esc(playlist.id)}">重命名</button><button data-action="delete-playlist" data-playlist-id="${esc(playlist.id)}">删除歌单</button></div>${entries}</article>`;
+    // 「我喜欢的音乐」不允许改名或删除：它承载红心状态，删掉等于把用户的喜欢全丢掉。
+    // 这里只是不给入口，真正的拦截在 rename/delete 两个 action 里（按钮可以没有，动作必须防）。
+    const likes = isLikesPlaylist(playlist);
+    const editControls = likes
+      ? `<p class="playlist-protected">由红心 ♥ 自动维护，不可改名或删除。</p>`
+      : `<div class="playlist-card-edit"><input type="text" maxlength="100" value="${esc(playlist.name)}" data-playlist-name="${esc(playlist.id)}" aria-label="修改歌单名称"><button data-action="rename-playlist" data-playlist-id="${esc(playlist.id)}">重命名</button><button data-action="delete-playlist" data-playlist-id="${esc(playlist.id)}">删除歌单</button></div>`;
+    return `<article class="playlist-card ${selected ? "selected" : ""} ${likes ? "is-likes" : ""}" data-playlist-card="${esc(playlist.id)}"><div class="playlist-card-heading"><button class="playlist-select" data-action="select-playlist" data-playlist-id="${esc(playlist.id)}" aria-expanded="${selected}"><strong>${esc(playlist.name)}</strong><small>${playlist.tracks.length} 首 · ${availableCount} 首可播放</small></button><button data-action="play-playlist" data-playlist-id="${esc(playlist.id)}" ${availableCount ? "" : "disabled"} aria-label="播放歌单 ${esc(playlist.name)}">${icons.play}</button>${pendingPlaylistTrackId ? `<button data-action="add-pending-playlist" data-playlist-id="${esc(playlist.id)}">添加歌曲</button>` : ""}</div>${editControls}${entries}</article>`;
   }).join("");
+}
+
+/** 评论按钮的可用性，以及"面板开着时换歌要跟着换"。
+ *  它读的状态（commentsTrackId 等）声明在**模块顶部**，因为本函数会被播放器监听器在模块求值
+ *  期间调用一次（见那边的注释）。 */
+function syncCommentsButton() {
+  const button = document.querySelector<HTMLButtonElement>("#transport-comments");
+  const track = playerState?.currentTrack;
+  if (button) {
+    button.disabled = !track;
+    // 展开态看面板是否真的可见。真正写入的权威在 syncCommentsView（它同时管 hidden 与过渡），
+    // 这里只做兜底同步，所以不在这里翻转任何状态。
+    const visible = document.querySelector<HTMLElement>("#music-comments-panel")?.hidden === false;
+    button.setAttribute("aria-expanded", String(visible));
+    button.setAttribute("aria-label", track ? `听后感：${track.title}` : "听后感");
+    button.title = track ? "听后感" : "播放一首歌后才能写听后感";
+  }
+  // 面板开着时换了曲目，就换成那一首的听后感；没换就不动，免得把正在输入的内容冲掉。
+  const currentId = track?.id ?? null;
+  if (commentsRequested && currentId !== commentsTrackId) {
+    commentsTrackId = currentId;
+    void loadCommentsPanel();
+  }
+  // 角标：换曲目就重新取一次条数（面板没开也要准）。同一首不重复请求。
+  if (currentId !== commentsCountTrackId) {
+    commentsCountTrackId = currentId;
+    void refreshCommentCount();
+  }
+}
+
+/**
+ * 听后感面板。跟**当前曲目**走，不是跟专辑走 —— 换歌就换成那一首的听后感。
+ * 数据存在应用数据目录（comments.json），不动用户的音乐文件夹，也不扫描、不上传。
+ */
+function renderCommentsPanel() {
+  const track = playerState?.currentTrack;
+  const body = document.querySelector<HTMLElement>("#comments-body");
+  const compose = document.querySelector<HTMLElement>(".comments-compose");
+  const title = document.querySelector<HTMLElement>("#comments-song-title");
+  const artist = document.querySelector<HTMLElement>("#comments-song-artist");
+  const count = document.querySelector<HTMLElement>("#comments-count");
+  if (!body) return;
+  // 顶部曲目信息跟着当前曲目走（和歌词面板的 song-info 同一角色）。
+  if (title) title.textContent = track?.title ?? "";
+  if (artist) artist.textContent = track?.artist ?? "";
+  if (!track) {
+    // 没有曲目就没有"这首歌的听后感"可言 —— 说明白，并把发布区收起来。
+    if (compose) compose.hidden = true;
+    if (count) count.textContent = "全部评论 0";
+    body.innerHTML = `<p class="comments-empty">先在专辑里播放一首歌，再写下你对它的听后感。听后感只保存在这台机器上。</p>`;
+    return;
+  }
+  if (compose) compose.hidden = false;
+  void loadCommentsPanel();
+}
+
+/**
+ * 控制栏图标的**角标**（右上角条数），主人要的是"有的话显示条数，没有就是完整图标"。
+ * 所以 `count <= 0` 时整个角标隐藏，不显示 `0`。
+ *
+ * 收藏的条数只能是 0/1（本机只有你自己收藏），但仍然走同一个函数 —— 主人提过以后可能做成
+ * 在线版，那时这里直接换成服务端返回的人数即可，不必改结构。
+ */
+function setTransportBadge(id: string, count: number) {
+  const badge = document.querySelector<HTMLElement>(id);
+  if (!badge) return;
+  const shown = Number.isFinite(count) && count > 0;
+  badge.hidden = !shown;
+  if (shown) {
+    // 三位数以上收成 `999+`（主人说的"一般最高是 999+"）。这是**文本截断**，不是画图标 ——
+    // 网易云也是同一个做法：图标固定、数字是叠在右上角的一段文本，所以不需要为每个数字准备图形。
+    const text = count > 999 ? "999+" : String(count);
+    if (badge.textContent !== text) badge.textContent = text;
+  }
+}
+
+/**
+ * 控制栏最左侧的「歌名 · 歌手」。没有曲目时整块隐藏，不留空白占位。 */
+function syncTransportTrack() {
+  const block = document.querySelector<HTMLElement>("#transport-track");
+  const titleEl = document.querySelector<HTMLElement>("#transport-track-title");
+  const artistEl = document.querySelector<HTMLElement>("#transport-track-artist");
+  if (!block || !titleEl || !artistEl) return;
+  const track = playerState?.currentTrack;
+  block.hidden = !track;
+  if (!track) {
+    titleEl.textContent = "";
+    artistEl.textContent = "";
+    return;
+  }
+  if (titleEl.textContent !== track.title) titleEl.textContent = track.title;
+  if (artistEl.textContent !== track.artist) artistEl.textContent = track.artist;
+  // 名称过长时用 title 兜底（悬停可看全），主显示交给 CSS 截断。
+  block.title = `${track.title}${track.artist ? ` · ${track.artist}` : ""}`;
+}
+
+/**
+ * 取当前曲目的听后感条数并更新角标。
+ *
+ * 为什么单独发一个轻量请求、而不是复用面板的加载：角标要**面板没开也准**（主人要的是"有的话就
+ * 显示条数，没有就是完整气泡"）。只取条数、不渲染列表，开销很小。
+ * 带代次守卫：连续换歌时只有最后一次的结果允许写入，否则角标会显示上一首的条数。
+ */
+async function refreshCommentCount() {
+  const track = playerState?.currentTrack;
+  if (!track) {
+    transportCommentCount = 0;
+    setTransportBadge("#transport-comments-badge", 0);
+    return;
+  }
+  const token = ++commentsCountToken;
+  try {
+    const result = await request<{ comments: ListeningComment[] }>(`/api/comments/${track.id}`);
+    if (token !== commentsCountToken) return;
+    // 期间换了曲目 → 这次的结果属于上一首，丢弃。
+    if (playerState?.currentTrack?.id !== track.id) return;
+    transportCommentCount = result.comments.length;
+  } catch {
+    // 取不到就保持原值并直接返回：角标只是提示，不该因一次请求失败而清空。
+    return;
+  }
+  setTransportBadge("#transport-comments-badge", transportCommentCount);
+}
+/**
+ * 听后感面板的显隐裁决点。与歌词面板互斥：只在"自己该显示"时才去收掉对方，
+ * 因此两者不会互相无限递归。开关状态（commentsRequested / commentsClosing）声明在**模块顶部**，
+ * 因为本函数会在模块求值期间被 syncLyricsPanel 调用一次（理由见那边的注释）。
+ */
+function syncCommentsView() {
+  const panel = document.querySelector<HTMLElement>("#music-comments-panel");
+  if (!panel) return;
+  const hasTrack = !!playerState?.currentTrack;
+  // 互斥由**调用方**设置 `lyricsAllowed` / `commentsRequested` 维护（见两个按钮的 case），
+  // 本函数只负责按当前标志渲染自己。两个 sync 函数因此**互不调用**，不成环 —— 我最初写成
+  // "打开一个就去调另一个收掉对方"，实测直接 `RangeError: Maximum call stack size exceeded`。
+  const shouldShow = hasTrack && commentsRequested && stage.dataset.mode !== "archive";
+  const wasHidden = panel.hidden;
+  if (shouldShow) {
+    if (wasHidden) {
+      commentsPanelTransition.show(preferences.reduced);
+      renderCommentsPanel();
+    }
+  } else if (!wasHidden && !commentsClosing) {
+    commentsClosing = true;
+    commentsPanelTransition.hide(preferences.reduced, () => {
+      commentsClosing = false;
+      syncCommentsView();
+    });
+  }
+  stage.dataset.commentsVisible = String(shouldShow);
+  const button = document.querySelector<HTMLButtonElement>("#transport-comments");
+  button?.setAttribute("aria-expanded", String(shouldShow));
+}
+
+/**
+ * 拉取并渲染当前曲目的听后感。
+ *
+ * **必须带代次守卫**：保存一条后会触发两次加载（保存成功后一次、曲目同步里一次），两个请求
+ * 并发时，**先发出的那个可能后返回**，会把面板覆盖成旧列表 —— 实测到的症状是"刚保存完面板
+ * 还显示没有听后感，下一次操作才补上"，即整体慢一拍。只有最后一次请求的结果才允许写入。
+ */
+async function loadCommentsPanel() {
+  const status = document.querySelector<HTMLElement>("#comment-status");
+  const list = document.querySelector<HTMLElement>("#comments-body");
+  const count = document.querySelector<HTMLElement>("#comments-count");
+  if (!status || !list) return;
+  const track = playerState?.currentTrack;
+  if (!track) {
+    status.textContent = "没有正在播放的曲目。";
+    list.innerHTML = "";
+    return;
+  }
+  const token = ++commentsLoadToken;
+  try {
+    const result = await request<{ comments: ListeningComment[] }>(`/api/comments/${track.id}`);
+    // 期间又发起了新的加载（或换了曲目）→ 这次的结果已过期，丢弃。
+    if (token !== commentsLoadToken) return;
+    if (count) count.textContent = `全部评论 ${result.comments.length}`;
+    status.textContent = result.comments.length ? `${result.comments.length} 条听后感` : "还没有听后感，写下第一条吧。";
+    list.innerHTML = result.comments.length
+      ? result.comments
+          .map(
+            (comment) =>
+              `<article class="comment-card"><p class="comment-text">${esc(comment.text)}</p><div class="comment-meta"><time>${esc(formatCommentTime(comment.createdAt))}</time><button data-action="delete-comment" data-comment-id="${esc(comment.id)}" aria-label="删除这条听后感">删除</button></div></article>`,
+          )
+          .join("")
+      : `<p class="comments-empty">还没有听后感，写下第一条吧。</p>`;
+  } catch (error) {
+    if (token !== commentsLoadToken) return;
+    status.textContent = `读取失败：${(error as Error).message}`;
+    list.innerHTML = "";
+  }
+}
+
+/** 时间用本地格式显示；解析不出来就原样显示，不显示 Invalid Date。 */
+function formatCommentTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+async function addComment() {
+  const track = playerState?.currentTrack;
+  const input = document.querySelector<HTMLTextAreaElement>("#comment-text");
+  if (!track) {
+    notify("先播放一首歌，再写听后感。");
+    return;
+  }
+  const body = input?.value.trim() ?? "";
+  if (!body) {
+    notify("写点内容再保存。");
+    input?.focus();
+    return;
+  }
+  try {
+    await request(`/api/comments/${track.id}`, { text: body });
+    if (input) input.value = "";
+    notify("听后感已保存在本机。");
+    await loadCommentsPanel();
+    // 角标跟着条数走；用刚保存后的真实条数，不必再多发一个请求。
+    transportCommentCount += 1;
+    setTransportBadge("#transport-comments-badge", transportCommentCount);
+  } catch (error) {
+    notify(`保存失败：${(error as Error).message}`);
+  }
+}
+
+async function deleteComment(commentId: string) {
+  const track = playerState?.currentTrack;
+  if (!track || !commentId) return;
+  try {
+    await request(`/api/comments/${track.id}/${commentId}`, undefined, "DELETE");
+    notify("这条听后感已删除。");
+    await loadCommentsPanel();
+    transportCommentCount = Math.max(0, transportCommentCount - 1);
+    setTransportBadge("#transport-comments-badge", transportCommentCount);
+  } catch (error) {
+    notify(`删除失败：${(error as Error).message}`);
+  }
+}
+
+// ── 程序内弹窗 ────────────────────────────────────────────────────────────────
+// 取代 window.prompt / window.confirm：原生弹窗是**浏览器**样式的，和这套界面不是一回事，
+// 而且会阻塞整个页面（连滚动都停）。两种形态共用一层遮罩：
+//   输入框（detail.input）—— 新建歌单；确认（detail.confirm）—— 删除歌单这类不可撤销操作。
+// 返回 Promise：输入框给字符串或 null（取消），确认给 true 或 false。
+type DialogDetail = {
+  title: string;
+  description?: string;
+  /** 有输入框时的初始值；没有就只显示确认按钮。 */
+  input?: { value: string; maxLength: number; placeholder?: string };
+  confirmLabel: string;
+  danger?: boolean;
+  onConfirm: (value: string) => void;
+  onCancel: () => void;
+};
+
+function showMusicDialog(detail: DialogDetail) {
+  const dialog = document.querySelector<HTMLElement>("#music-dialog");
+  if (!dialog) {
+    detail.onCancel();
+    return;
+  }
+  const isInput = !!detail.input;
+  dialog.innerHTML = `<div class="music-dialog-scrim" data-dialog="cancel"><section class="music-dialog-card" role="dialog" aria-modal="true" aria-labelledby="music-dialog-title">
+    <h2 id="music-dialog-title">${esc(detail.title)}</h2>
+    ${detail.description ? `<p class="music-dialog-text">${esc(detail.description)}</p>` : ""}
+    ${isInput ? `<input id="music-dialog-input" type="text" maxlength="${detail.input!.maxLength}" value="${esc(detail.input!.value)}" placeholder="${esc(detail.input!.placeholder ?? "")}" aria-label="${esc(detail.title)}">` : ""}
+    <div class="music-dialog-actions">
+      <button type="button" data-dialog="cancel">取消</button>
+      <button type="button" class="primary-button${detail.danger ? " is-danger" : ""}" data-dialog="confirm">${esc(detail.confirmLabel)}</button>
+    </div>
+  </section></div>`;
+  dialog.hidden = false;
+  const input = document.querySelector<HTMLInputElement>("#music-dialog-input");
+  input?.focus();
+  input?.select();
+  const submit = () => {
+    const value = input ? input.value.trim() : "";
+    if (isInput && !value) {
+      // 服务端要求名称非空，这里先挡住，并把焦点放回输入框，而不是弹一个错误提示。
+      input?.focus();
+      return;
+    }
+    close();
+    detail.onConfirm(value);
+  };
+  const close = () => {
+    dialog.hidden = true;
+    dialog.innerHTML = "";
+    document.removeEventListener("keydown", onKey, true);
+  };
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      detail.onCancel();
+    } else if (event.key === "Enter" && isInput) {
+      event.preventDefault();
+      submit();
+    }
+  };
+  document.addEventListener("keydown", onKey, true);
+  dialog.querySelector(".music-dialog-scrim")?.addEventListener("click", (event) => {
+    if ((event.target as HTMLElement).dataset.dialog === "cancel") {
+      close();
+      detail.onCancel();
+    }
+  });
+  dialog.querySelector('[data-dialog="confirm"]')?.addEventListener("click", submit);
+  dialog.querySelector('[data-dialog="cancel"]')?.addEventListener("click", () => {
+    close();
+    detail.onCancel();
+  });
+}
+
+/** 询问一个名称（新建歌单）。返回 null 表示取消。 */
+function askMusicName(options: { title: string; value: string; confirmLabel: string; placeholder?: string }): Promise<string | null> {
+  return new Promise((resolve) => {
+    showMusicDialog({
+      title: options.title,
+      input: { value: options.value, maxLength: 100, placeholder: options.placeholder },
+      confirmLabel: options.confirmLabel,
+      onConfirm: (value) => resolve(value),
+      onCancel: () => resolve(null),
+    });
+  });
+}
+
+/** 确认一次不可撤销的操作（删除歌单）。 */
+function confirmMusicAction(options: { title: string; description?: string; confirmLabel: string; danger?: boolean }): Promise<boolean> {
+  return new Promise((resolve) => {
+    showMusicDialog({
+      title: options.title,
+      description: options.description,
+      confirmLabel: options.confirmLabel,
+      danger: options.danger,
+      onConfirm: () => resolve(true),
+      onCancel: () => resolve(false),
+    });
+  });
+}
+
+// ── 「更多」菜单 ──────────────────────────────────────────────────────────────
+// 结构照网易云那一列先搭好（下载 / 分享 / 一起听 / 播放倍速 · 歌手 / 专辑 / 音效 / 购买单曲 ·
+// 减少推荐），将来平台化时在这个骨架上接功能即可。
+//
+// **每一项都如实置灰**，不伪装成能点：下载 / 分享 / 一起听 / 购买单曲 / 减少推荐依赖账号与云端，
+// 本机播放器做不到；歌手 / 专辑 / 音效 / 播放倍速是尚未开发。用 title 说清是哪一种，
+// 避免用户点了没反应，也避免用"即将支持"暗示所有项都会实现。
+type MoreMenuItem = {
+  /** data-action；没有就表示这一项当前不可用。 */
+  action?: string;
+  icon: string;
+  label: string;
+  /** 右侧附加信息（歌手名、专辑名、音质等）。 */
+  value?: string;
+  /** 不可用时的原因，写进 title 与 aria。 */
+  reason?: string;
+  /** true = 依赖账号/云端，本机版本不提供。 */
+  remote?: boolean;
+};
+
+function moreMenuItem(item: MoreMenuItem): string {
+  const disabled = !item.action;
+  const reason = item.reason ?? (disabled ? "当前版本尚未提供" : "");
+  const attributes = [
+    `type="button"`,
+    `class="transport-menu-item transport-more-item${item.remote ? " is-remote" : ""}"`,
+    `role="menuitem"`,
+    item.action ? `data-action="${item.action}"` : "",
+    disabled ? "disabled" : "",
+    reason ? `title="${esc(reason)}" aria-label="${esc(`${item.label}${item.value ? `：${item.value}` : ""}（${reason}）`)}"` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return `<button ${attributes}><span class="transport-more-leading">${item.icon}</span><span class="transport-menu-name">${esc(item.label)}</span>${item.value ? `<span class="transport-more-value">${esc(item.value)}</span>` : ""}</button>`;
+}
+
+function renderMoreMenu() {
+  const menu = document.querySelector<HTMLElement>("#transport-more-menu");
+  if (!menu) return;
+  const track = playerState?.currentTrack;
+  const album = albums.find((entry) => entry.id === track?.albumId);
+  const quality = track
+    ? [track.format, track.bitsPerSample ? `${track.bitsPerSample}bit` : "", track.sampleRate ? `${Math.round(track.sampleRate / 1000)}kHz` : ""]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+  const local: MoreMenuItem[] = [
+    { icon: icons.download, label: "下载", reason: "本机播放器无需下载；联网版本再提供", remote: true },
+    { icon: icons.share, label: "分享", reason: "分享需要联网服务，本机版本不提供", remote: true },
+    { icon: icons.together, label: "一起听", reason: "一起听需要联网服务，本机版本不提供", remote: true },
+    { icon: icons.speed, label: "播放倍速", reason: "播放倍速尚未开发" },
+  ];
+  const info: MoreMenuItem[] = [
+    { icon: icons.artist, label: "歌手", value: track?.artist || "—" },
+    { icon: icons.album, label: "专辑", value: album?.title || "—" },
+    { icon: icons.effects, label: "音效", reason: "音效尚未开发" },
+    { icon: icons.cart, label: "购买单曲", reason: "购买需要联网服务，本机版本不提供", remote: true },
+  ];
+  const tail: MoreMenuItem[] = [
+    { icon: icons.reduce, label: "减少推荐", reason: "推荐需要联网服务，本机版本不提供", remote: true },
+  ];
+  const section = (items: MoreMenuItem[]) => items.map(moreMenuItem).join("");
+  menu.innerHTML = `<div class="transport-menu-group">${section(local)}</div><div class="transport-menu-group">${section(info)}</div><div class="transport-menu-group transport-menu-last">${section(tail)}</div>`;
+}
+
+function openMoreMenu(anchor: HTMLElement) {
+  const menu = document.querySelector<HTMLElement>("#transport-more-menu");
+  if (!menu) return;
+  moreMenuOpen = true;
+  closeTransportMenu();
+  renderMoreMenu();
+  menu.hidden = false;
+  positionTransportMenu(anchor, menu);
+}
+
+function closeMoreMenu() {
+  const menu = document.querySelector<HTMLElement>("#transport-more-menu");
+  moreMenuOpen = false;
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  document.querySelector("#transport-more")?.setAttribute("aria-expanded", "false");
+}
+
+/** 菜单里显示当前曲目的歌手/专辑，所以换歌时要重画（菜单开着才需要）。 */
+function syncMoreMenu() {
+  const button = document.querySelector<HTMLButtonElement>("#transport-more");
+  const track = playerState?.currentTrack;
+  if (button) {
+    button.setAttribute("aria-expanded", String(moreMenuOpen));
+    button.setAttribute("aria-label", track ? `更多：${track.title}` : "更多");
+  }
+  if (moreMenuOpen) renderMoreMenu();
 }
 
 async function createPlaylist() {
@@ -1663,6 +2463,13 @@ async function addPendingTrack(playlistId: string) {
 async function renamePlaylist(id: string) {
   const input = document.querySelector<HTMLInputElement>(`[data-playlist-name="${CSS.escape(id)}"]`);
   if (!input) return;
+  // 名字就是「我喜欢的音乐」的身份标识（红心靠它找这张歌单），改名会让红心从此找不到它，
+  // 所以这里必须拦住。侧栏本来就不给它改名入口，但动作层面也要防。
+  const target = playlists.find((entry) => entry.id === id);
+  if (target && isLikesPlaylist(target)) {
+    notify("「我喜欢的音乐」由红心自动维护，不能改名。");
+    return;
+  }
   try {
     await request(`/api/playlists/${id}`, { name: input.value }, "PATCH");
     await loadPlaylistPanel();
@@ -1674,7 +2481,20 @@ async function renamePlaylist(id: string) {
 
 async function deletePlaylist(id: string) {
   const playlist = playlists.find((entry) => entry.id === id);
-  if (!playlist || !window.confirm(`删除歌单“${playlist.name}”？音乐文件不会受到影响。`)) return;
+  if (!playlist) return;
+  // 删掉「我喜欢的音乐」等于把用户的喜欢全部丢掉，而且没有撤销。侧栏不给入口，动作层也拦。
+  if (isLikesPlaylist(playlist)) {
+    notify("「我喜欢的音乐」不能删除；要清空请逐首取消喜欢。");
+    return;
+  }
+  // 确认也用程序内弹窗（同样是浏览器样式的原生 confirm 的问题）；删除不可撤销，标为危险操作。
+  const confirmed = await confirmMusicAction({
+    title: `删除歌单「${playlist.name}」？`,
+    description: "歌单里的曲目列表会被移除，音乐文件本身不受影响。此操作无法撤销。",
+    confirmLabel: "删除歌单",
+    danger: true,
+  });
+  if (!confirmed) return;
   try {
     await request(`/api/playlists/${id}`, undefined, "DELETE");
     if (selectedPlaylistId === id) selectedPlaylistId = "";
@@ -1758,26 +2578,11 @@ function syncQueuePanel(force = false) {
 // hidden there is what the owner asked for, rather than a collapsed strip over the
 // archive text (that overlap measured 430px at 1440x900). The panel is shown again
 // on the album page, where syncLyricsPanel re-measures it as it appears.
-function applyLyricsCollapsed() {
-  const collapsed = !!preferences.lyricsCollapsed;
-  $("#lyrics-panel-body").hidden = collapsed;
-}
-
-// The panel is expanded by default; collapsing keeps only a slim band with the
-// live line so the album column underneath becomes reachable again.
-function setLyricsCollapsed(collapsed: boolean) {
-  if (preferences.lyricsCollapsed === collapsed) return;
-  preferences.lyricsCollapsed = collapsed;
-  save("rhine-music-preferences", preferences);
-  applyLyricsCollapsed();
-  // Refresh the derived "the album column stands down" flag right away, then
-  // re-centre so resuming does not scroll up from wherever the list sat.
-  syncLyricsPanel();
-  if (!collapsed) {
-    activeLyric = -2;
-    syncLyricsPosition(player.playbackTime);
-  }
-}
+// 旧「收起态」歌词卡的最后一处残留（`applyLyricsCollapsed` / `setLyricsCollapsed`）已删除。
+// 那张卡现在只有两种状态：**歌词页**或**不存在**（由 SurfaceTransition 的滑入/滑出掌管 hidden）。
+// 之前两套机制并存，而旧的持久化标志 `lyricsCollapsed` 仍然参与 shouldShow 的判断 —— 它一旦为
+// true，词按钮就再也打不开歌词页，且重启后依然如此。主人报告过"有歌词的歌、停止后点词没反应"，
+// 根源就在这里。相关代码没有保留的必要，故直接删除而不是隐藏。
 
 // Lyrics are read from a small local .lrc file beside the track and cannot change without
 // that file changing, so a hit is served from memory instead of asking the service again.
@@ -1826,6 +2631,7 @@ async function loadLyrics(track: MusicTrack | null) {
   renderLyricRows();
   updateLyricFocus(-1);
   syncLyricsPanel();
+  syncCommentsView();
   syncLyricClock();
   if (!track) return;
   try {
@@ -1837,6 +2643,7 @@ async function loadLyrics(track: MusicTrack | null) {
     renderLyricRows();
     updateLyricFocus(-1);
     syncLyricsPanel();
+    syncCommentsView();
     syncLyricsPosition(player.playbackTime);
     syncLyricClock();
   } catch (error) {
@@ -1846,6 +2653,7 @@ async function loadLyrics(track: MusicTrack | null) {
     renderLyricRows();
     updateLyricFocus(-1);
     syncLyricsPanel();
+    syncCommentsView();
   }
 }
 
@@ -1961,6 +2769,26 @@ function syncLyricsPanelAlignment() {
   const column = document.querySelector<HTMLElement>("#album-detail-content");
   const stage = document.querySelector<HTMLElement>("#stage");
   if (!panel || !column || !stage) return;
+  /**
+   * 这些定位变量原先只写在**歌词面板自身**上。现在听后感面板是同一块区域里的第二个视图，
+   * 所以必须由更上一级来定义这块"区域" —— 否则评论面板会退回样式表里的默认值。实测的后果：
+   * 评论面板量到 `l:0 r:157`（因为 --lyrics-left/right/width 只写在 `.music-lyrics-panel`
+   * 的规则里，只有歌词面板自己吃得到），而歌词面板是 `l:832 r:1550`，切换时明显"跳一下"。
+   *
+   * 写法上：写到 **`#stage`**（两个面板的共同祖先），一次写入两边都继承、且与面板是否隐藏无关。
+   * 面板自身那份也保留 —— 歌词卡的对齐逻辑会用 `getComputedStyle(panel)` 读 `--lyrics-top-inset`
+   * 之类的默认值做校准。
+   */
+  const setSharedGeometry = (name: string, value: string) => {
+    panel.style.setProperty(name, value);
+    stage.style.setProperty(name, value);
+  };
+  /**
+   * **区域**的水平范围与高度。歌词面板只占用其中一部分（它自己还有 band 高度、底部内缩），
+   * 而听后感面板要占**整块**，所以两者不能共用同一套 bottom/height 值 —— 这就是为什么
+   * `--lyrics-bottom` 不能给评论面板用（那是"给歌词卡留了高度"之后的值，实测 243px）。
+   */
+  const setRegion = (name: string, value: string) => stage.style.setProperty(name, value);
   // The seek row is part of this band, so entering the album detail (and every re-measure)
   // stocks it: visible at 00:00 / 00:00 while no track is loaded, live once one is.
   syncSeekRow(player.playbackTime, playerState?.duration ?? 0);
@@ -2001,7 +2829,7 @@ function syncLyricsPanelAlignment() {
   const borderTop = parseFloat(panelStyles.borderTopWidth) || 0;
   const firstLineInset = borderTop + parsedInset("--lyrics-top-inset", 16);
   if (lyricsTitleTop !== null) {
-    panel.style.setProperty("--lyrics-top", `${lyricsTitleTop - firstLineInset}px`);
+    setSharedGeometry("--lyrics-top", `${lyricsTitleTop - firstLineInset}px`);
   }
   // The panel's own horizontal padding mirrors the column's, so the lyrics sit
   // on the same two vertical lines as the album title and its credits rule. The
@@ -2016,8 +2844,8 @@ function syncLyricsPanelAlignment() {
   const paddingRight = parseFloat(columnStyles.paddingRight) || 0;
   const borderLeft = parseFloat(columnStyles.borderLeftWidth) || 0;
   const borderRight = parseFloat(columnStyles.borderRightWidth) || 0;
-  panel.style.setProperty("--lyrics-left-pad", `${paddingLeft + borderLeft}px`);
-  panel.style.setProperty("--lyrics-right-pad", `${paddingRight + borderRight}px`);
+  setSharedGeometry("--lyrics-left-pad", `${paddingLeft + borderLeft}px`);
+  setSharedGeometry("--lyrics-right-pad", `${paddingRight + borderRight}px`);
   // The track list and the expanded lyrics card end on ONE line, and the line
   // belongs to the list: the scroller keeps one row of its own height free at its
   // foot (that band is where the transport controls are meant to move later), so
@@ -2064,7 +2892,17 @@ function syncLyricsPanelAlignment() {
     lyricsBottomInset = Math.max(0, stageHeight - Math.min(listBottom, columnBottom));
   }
   if (lyricsBottomInset !== null) {
-    panel.style.setProperty("--lyrics-bottom", `${lyricsBottomInset}px`);
+    setSharedGeometry("--lyrics-bottom", `${lyricsBottomInset}px`);
+  }
+  // **区域**：听后感面板与歌词面板**共用同一块区域的左右与顶边**（底边则用 `--lyrics-bottom`，
+  // 也就是与歌词面板同一条底边 —— 曲目列表底边，正好在控制栏之上）。
+  // 为什么不能直接复用歌词面板那套 `--lyrics-*`：那几个变量只写在 `.music-lyrics-panel` 的规则里，
+  // 评论面板拿不到（实测退成 l:0 r:157，而歌词是 l:832 r:1550）。
+  if (creditsTop !== null) {
+    const columnBox = column.getBoundingClientRect();
+    setRegion("--detail-region-left", `${Math.round(columnBox.left)}px`);
+    setRegion("--detail-region-right", `${Math.round(stage.clientWidth - columnBox.right)}px`);
+    setRegion("--detail-region-top", `${Math.round(columnBox.top)}px`);
   }
   // The lyrics card's own rule is the band's bottom border, and it belongs on the
   // album column's rule — the top border of its facts block — so the song block
@@ -2238,7 +3076,7 @@ let lyricScrollFrame = 0;
 // makes each move a single continuous glide.
 function centerLyricLine(snap: boolean) {
   const list = document.querySelector<HTMLElement>("#lyric-list");
-  if (!list || preferences.lyricsCollapsed) return;
+  if (!list) return;
   const line = activeLyricLine();
   if (!line) return;
   const start = list.scrollTop;
@@ -2305,7 +3143,52 @@ function syncLyricsPosition(currentTime: number) {
 // by the transition at the END of that animation, so without this any sync in between (the
 // lyric clock fires on every line while a song plays) started the close all over again and
 // it never finished.
-let lyricsClosing = false;
+// （`lyricsClosing` / `lyricsPanelRequested` 的声明在模块顶部，理由见那边。）
+// 用户是否要求显示歌词页 —— 也就是「词」按钮的开关状态。
+//
+// 为什么需要一个单独的标志、而不是直接看面板的 `hidden`：面板的 `hidden` 由 SurfaceTransition
+// 在**动画结束时**才设置，所以关闭动画进行到一半时它仍是 false。早先用的是一个**持久化偏好**
+// （`lyricsCollapsed`）当开关，那个值一旦在某种路径下被置为 true 就会永久挡住歌词页（重启也不
+// 恢复），主人遇到的就是"有歌词的歌、点了词没反应"。现在这个标志只活在内存里、只由按钮翻转，
+// 且每条会改变可见性的路径（换歌、进/退专辑页、播放状态变化）都会经由 syncLyricsPanel 重新对账。
+// 标志本身的声明在**模块顶部**（见 lyricJump 旁的说明）：本组函数会在模块求值期间被调用一次。
+function syncTransportControls() {
+  const track = playerState?.currentTrack;
+  // 播放模式: the button shows the CURRENT mode, exactly as NetEase's does, and says it in
+  // its label so the glyph is never the only clue.
+  const modeButton = document.querySelector<HTMLButtonElement>("#transport-play-mode");
+  const active = PLAY_MODES.find((entry) => entry.mode === preferences.playMode) ?? PLAY_MODES[0];
+  if (modeButton) {
+    // **只在模式真的变了时才写 DOM。**
+    // 早先这里是无条件 `modeButton.innerHTML = active.icon`：播放中音频的 timeupdate 会高频
+    // 触发状态同步，于是指针下面的 <svg> 被不停销毁重建，点击经常落在一个"已被替换掉"的元素上
+    // —— 表现就是"播放中点播放模式时灵时不灵，暂停后特别迅速"（主人报的正是这个）。
+    // 同一个函数里音质那一格本来就有 `textContent !== label` 这道守卫，这里漏了。
+    if (modeButton.dataset.mode !== active.mode) {
+      modeButton.dataset.mode = active.mode;
+      modeButton.innerHTML = active.icon;
+      modeButton.setAttribute("aria-label", `播放模式：${active.label}`);
+      modeButton.title = `播放模式：${active.label}`;
+    }
+  }
+  // 音质/格式 chip: shows the track's format once one is loaded, and the word 音质 before
+  // that — the owner's call, because an empty slot read as "missing" even though it was
+  // reserving its width. Shaped like NetEase's 本地 chip (see .transport-format).
+  const format = document.querySelector<HTMLElement>("#transport-format");
+  if (format) {
+    const label = track?.format || "音质";
+    if (format.textContent !== label) format.textContent = label;
+    format.classList.toggle("is-empty", !track?.format);
+    format.setAttribute("aria-label", track?.format ? `音质：${track.format}` : "音质");
+  }
+  // 收藏到歌单 and the two skips follow the track: with nothing loaded the row says so
+  // rather than offering controls that cannot act.
+  for (const id of ["#transport-add-playlist", "#track-prev", "#track-next"]) {
+    const button = document.querySelector<HTMLButtonElement>(id);
+    if (button) button.disabled = !track;
+  }
+}
+
 function syncLyricsPanel() {
   const panelElement = document.querySelector<HTMLElement>("#music-lyrics-panel");
   const status = document.querySelector<HTMLElement>("#transport-lyric-status");
@@ -2316,18 +3199,24 @@ function syncLyricsPanel() {
   const transportActive = !!track &&
     (state.transport === "playing" || state.transport === "paused" || state.transport === "loading");
   // Relaxed on the owner's call: the card is about the track's LYRICS, not about the
-  // transport running, so a stopped track with lyrics can still be read (its follow
-  // clock simply does not advance until it plays again). Stopping still closes it —
-  // see the "stop" action — and the 词 button reopens it whenever there are lyrics.
+  // transport running, so a track that is not playing can still be read (its follow
+  // clock simply does not advance until it plays again). The 词 button opens and closes it.
   const hasLyrics = !!track && lyricLines.length > 0;
-  const collapsed = !!preferences.lyricsCollapsed;
-  const shouldShow = hasLyrics && !collapsed && stage.dataset.mode !== "archive";
+  // `lyricsAllowed`：听后感面板打开时会把它置 false（两者占同一块区域，互斥）。
+  // 这里**不**去调用 syncCommentsView 来"收掉对方" —— 那会成环（见 lyricsAllowed 的说明）。
+  const shouldShow = hasLyrics && lyricsPanelRequested && lyricsAllowed && stage.dataset.mode !== "archive";
   const wasHidden = panelElement.hidden;
   // The card enters and leaves from and back to the right (see lyricsPanelTransition):
   // it owns `hidden`, so the close animates out before the card disappears. The panel
   // re-measures when the show finishes, which is also when its band finally has a box.
   if (shouldShow) {
     if (wasHidden) {
+      // 歌词**真的要转为可见**时才收回听后感面板的展示权（改标志，不调用 syncCommentsView，
+      // 避免成环；它会在自己的下一次 sync 里按这个标志收起来）。
+      // 注意：这一句原先被我写在 `if (wasHidden)` 里但**位置对了、条件错了** —— 它会在每次
+      // "歌词需要显示"时都清掉评论的意图，于是"退回专辑架再回来"时评论面板不再自动恢复
+      // （实测 `切回详情后 commentsHidden: true`）。
+      if (document.querySelector<HTMLElement>("#music-comments-panel")) commentsRequested = false;
       lyricsPanelTransition.show(preferences.reduced, syncLyricsPanelAlignment);
       // Measure NOW as well, not only when the entrance finishes: the panel is laid out
       // the moment `show` un-hides it, and its entrance only moves it sideways, so the
@@ -2345,38 +3234,34 @@ function syncLyricsPanel() {
     lyricsPanelTransition.hide(preferences.reduced, () => {
       lyricsClosing = false;
       syncLyricsPanel();
+      syncCommentsView();
     });
   }
   // The card slides OUT over the album column, so the column must start coming back the
   // moment the close is asked for — not when the animation ends. Computing these from the
   // intended state is what makes the two overlap instead of leaving the page blank for the
-  // length of the exit. The body's own `hidden` still waits for the real hide (see
-  // applyLyricsCollapsed), or the card would empty out while it slid.
+  // length of the exit.
   const panelVisible = shouldShow ? true : panelElement.hidden === false && lyricsClosing;
-  syncLyricsSongInfo(track, !hasLyrics || collapsed);
+  syncLyricsSongInfo(track, !hasLyrics);
   stage.dataset.lyricsVisible = String(shouldShow || panelVisible);
-  applyLyricsCollapsed();
   stage.dataset.lyricsPlaying = String(shouldShow);
   openLyrics.setAttribute("aria-expanded", String(shouldShow));
   openLyrics.setAttribute("aria-label", shouldShow ? "收起歌词" : "展开歌词");
   openLyrics.disabled = !hasLyrics;
-  // The status line speaks only when there is something to say: while nothing is loaded,
-  // not while the track has lyric lines, and NOT while the lyrics have not been looked up
-  // yet — that state used to fall through to "暂无歌词" and flashed for the half second the
-  // .lrc lookup takes.
-  status.hidden =
-    !transportActive || lyricLines.length > 0 || lyricStateText.startsWith("尚未载入");
-  // The 词 button carries the state of the CARD, not of the stored preference: it goes
-  // to the hover colour only while the card is actually on screen, and its label says
-  // what a click would do. Both are written above, from the intended state, so the colour
-  // flips as the close starts rather than when it ends.
-  // The status beside the transport row's controls is the only status line left: the
-  // collapsed card's own line is gone with the card.
+  // The status line ALWAYS occupies its row, so the seek row above it never shifts. It used
+  // to be `hidden` whenever there was nothing to say, which meant opening an album showed no
+  // status line and pressing play inserted one — pushing the seek row up and moving the
+  // progress bar the owner was aiming at. It is now kept in the layout and made INVISIBLE
+  // when it has nothing to say: `visibility` reserves the space `display: none` gives up.
   const statusText = lyricStateText.startsWith("正在查找")
     ? "查找歌词…"
     : lyricStateText.startsWith("读取歌词失败")
       ? "歌词读取失败"
       : "暂无歌词";
+  const statusSilent =
+    !transportActive || lyricLines.length > 0 || lyricStateText.startsWith("尚未载入");
+  status.classList.toggle("is-silent", statusSilent);
+  status.setAttribute("aria-hidden", String(statusSilent));
   if (status.textContent !== statusText) status.textContent = statusText;
 }
 
@@ -2585,6 +3470,18 @@ document.addEventListener("click", (e) => {
   const target = (e.target as HTMLElement).closest<HTMLElement>(
     "button, [data-action]",
   );
+  // 点到别处就收起歌单菜单。这一步必须在 `if (!target)` 之前：点在非按钮的空白处时
+  // target 为空，若放在后面就永远不会收起。
+  if (transportMenuOpen) {
+    const inside = (e.target as HTMLElement).closest("#transport-menu");
+    const onSwitch = target?.dataset.action === "add-to-playlist";
+    if (!inside && !onSwitch) closeTransportMenu();
+  }
+  if (moreMenuOpen) {
+    const insideMore = (e.target as HTMLElement).closest("#transport-more-menu");
+    const onMoreSwitch = target?.dataset.action === "more";
+    if (!insideMore && !onMoreSwitch) closeMoreMenu();
+  }
   if (!target) return;
   if (target.dataset.action === "dismiss-panel" && e.target !== target) return;
   if (target.dataset.theme) {
@@ -2682,9 +3579,8 @@ document.addEventListener("click", (e) => {
       if (target.dataset.trackId && !player.removeQueuedTrack(target.dataset.trackId))
         notify("正在播放的歌曲会保留在队列中。");
       break;
-    case "lyrics-toggle":
-      setLyricsCollapsed(!preferences.lyricsCollapsed);
-      break;
+    // 没有 "lyrics-toggle" 分支：那是旧「展开/收起态」模型的入口，已无任何按钮派发它。
+    // 现在歌词页的开与关都走 "lyrics-panel"（控制栏的「词」按钮）。
     case "lyrics-size-down":
       stepLyricSize(-1);
       break;
@@ -2695,16 +3591,21 @@ document.addEventListener("click", (e) => {
       stepLyricAlign();
       break;
     case "lyrics-panel": {
-      // The transport row's 词 button switches between the album page and the lyrics
-      // page. It only acts where the card can actually be shown — a track in play or
-      // paused WITH lyric lines — because anywhere else the click would silently flip
-      // the stored preference and the card would come back collapsed later.
+      // 控制栏的「词」按钮：在专辑页与歌词页之间切换。
+      // 这里只记住**用户意图**，真正的显隐仍由 syncLyricsPanel + SurfaceTransition 执行 ——
+      // 面板的 `hidden` 是动画结束时才被设置的，所以这里翻它会让关闭动画半路失效。
+      // 只有"有曲目且有歌词"时才理会这次点击，否则按钮本来就该是暗的。
       const state = playerState;
       const track = state?.currentTrack;
-      // Only the lyrics matter now: a stopped track can be read too (see hasLyrics in
-      // syncLyricsPanel), and the stop button is what closes it.
       if (!track || lyricLines.length === 0) break;
-      setLyricsCollapsed(!preferences.lyricsCollapsed);
+      lyricsPanelRequested = !lyricsPanelRequested;
+      // 用户要开/关歌词页 → 许可歌词显示，并收回听后感面板的展示权（两者占同一块区域）。
+      // 这里是**单向**赋值、只调各自的 sync，不会在两个 sync 之间成环。
+      if (lyricsPanelRequested) lyricsAllowed = true;
+      commentsRequested = false;
+      syncCommentsView();
+      syncLyricsPanel();
+      syncCommentsView();
       break;
     }
     case "queue-panel":
@@ -2731,11 +3632,30 @@ document.addEventListener("click", (e) => {
       break;
     }
     case "queue-prev":
+    case "track-prev":
       void player.previous();
       break;
     case "queue-next":
+    case "track-next":
       void player.next();
       break;
+    // The control bar's own queue button. The top bar's uses the generic panel opener
+    // above; this one has to keep its aria-expanded honest for the new row.
+    case "queue":
+      openPanel("queue");
+      $("#transport-queue")?.setAttribute("aria-expanded", "true");
+      break;
+    // 播放模式 cycles the four modes in order. The player owns what "next" means; the app
+    // only owns the choice, which is remembered across sessions.
+    case "play-mode": {
+      const index = PLAY_MODES.findIndex((entry) => entry.mode === preferences.playMode);
+      const next = PLAY_MODES[(index + 1) % PLAY_MODES.length];
+      preferences.playMode = next.mode;
+      player.setPlayMode(next.mode);
+      savePrefs();
+      syncTransportControls();
+      break;
+    }
     case "locate-playing": {
       const track = playerState.currentTrack;
       if (track) revealAlbum(track.albumId, track.id, { reuseOpenAlbum: true });
@@ -2794,14 +3714,81 @@ document.addEventListener("click", (e) => {
     case "play-pause":
       playerState.currentTrack || playerState.queue.length ? void player.toggle() : playAlbum();
       break;
-    case "stop":
-      player.stop();
-      // Stopping also closes the card, even though the relaxed rule above would let a
-      // stopped track keep its lyrics open: the owner wanted "stop" to always mean the
-      // lyrics view is gone, while the 词 button brings it back whenever the track has
-      // lyrics.
-      setLyricsCollapsed(true);
+    case "like":
+      void toggleLike();
       break;
+    case "comments":
+      // 听后感**不再是模态弹窗**，而是和歌词并列的第三个右列视图（专辑详情 ↔ 歌词 ↔ 评论）。
+      // 这里和「词」按钮同样只记用户意图，真正的显隐交给 syncCommentsView()。
+      if (!playerState?.currentTrack) {
+        notify("先播放一首歌，再写听后感。");
+        break;
+      }
+      commentsRequested = !commentsRequested;
+      // 打开听后感时收回歌词的显示许可（两者占同一块区域）。关掉时不动歌词 ——
+      // 歌词本来就该保持"用户上次的意图"，不该被这次点击顺带改变。
+      if (commentsRequested) lyricsAllowed = false;
+      syncCommentsView();
+      syncLyricsPanel();
+      syncCommentsView();
+      break;
+    // 「更多」：图标本身是开关；菜单里的项当前全部置灰（见 renderMoreMenu 的说明），
+    // 所以这里只有开与关两种结果。
+    case "more": {
+      const button = document.querySelector<HTMLElement>("#transport-more");
+      if (moreMenuOpen) closeMoreMenu();
+      else if (button) {
+        button.setAttribute("aria-expanded", "true");
+        openMoreMenu(button);
+      }
+      break;
+    }
+    case "add-comment":
+      void addComment();
+      break;
+    case "delete-comment":
+      if (target.dataset.commentId) void deleteComment(target.dataset.commentId);
+      break;
+    // 收藏到歌单：图标本身是个开关（开/关菜单），菜单里的每一项才是真正的动作。
+    // 菜单开着的期间把 aria-expanded 同步成 true，读屏与样式都靠它。
+    case "add-to-playlist": {
+      const anchor = e.target as HTMLElement | null;
+      const button = $("#transport-add-playlist");
+      if (!button) break;
+      if (transportMenuOpen) {
+        closeTransportMenu();
+      } else {
+        button.setAttribute("aria-expanded", "true");
+        void openTransportMenu(anchor?.closest("button") ?? button);
+      }
+      break;
+    }
+    case "add-to-playlist-pick": {
+      const button = e.target as HTMLElement | null;
+      const playlistId = button?.dataset.playlist;
+      const name = button?.querySelector(".transport-menu-name")?.textContent ?? "歌单";
+      closeTransportMenu();
+      if (playlistId) void addCurrentTrackToPlaylist(playlistId, name);
+      break;
+    }
+    case "add-to-playlist-new": {
+      closeTransportMenu();
+      const track = playerState?.currentTrack;
+      if (!track) {
+        notify("当前没有在放的曲目，先播放一首再收藏。");
+        break;
+      }
+      // 用程序内弹窗而不是 window.prompt：原生弹窗是浏览器样式的，和这套界面不是一回事。
+      // 给一个默认名是因为服务端要求名称非空，用户可直接改。
+      void askMusicName({ title: "新建歌单", value: "我的歌单", confirmLabel: "创建并收藏", placeholder: "例如：夜间驾驶" })
+        .then((name) => {
+          if (name) void createPlaylistWithCurrentTrack(name);
+        });
+      break;
+    }
+    // 没有 "stop" 分支：界面不再提供停止按钮。暂停已覆盖"停下声音"，而"回到开头"由进度条
+    // 承担（拖到最左即可）。原先这里的分支在 dev.14 搬动控制栏后就没有任何按钮会派发它，
+    // 属于死代码；player.stop() 方法本身仍被播放器内部使用（换队列、释放资源），故保留。
     case "scan":
       void scan(true);
       break;
@@ -2860,8 +3847,190 @@ document.addEventListener("click", (e) => {
       break;
   }
 });
+const transportVolume = document.querySelector<HTMLElement>(".transport-volume");
+const transportVolumePanel = document.querySelector<HTMLElement>("#transport-volume-popover");
+const transportVolumeSlider = document.querySelector<HTMLInputElement>("#transport-volume");
+const transportVolumeValue = document.querySelector<HTMLElement>("#transport-volume-value");
+const transportVolumeButton = document.querySelector<HTMLButtonElement>("#transport-volume-button");
+// 0% 时换上带叉的静音喇叭（NetEase 也有这个状态）。两处会调用：面板打开时的同步、
+// 以及 input 事件（拖拽与键盘方向键都走这条）。只在状态真正翻转时才改 innerHTML，
+// 否则每次 input 都会重建图标节点。
+function applyVolumeMutedIcon(percent: number) {
+  if (!transportVolumeButton) return;
+  const muted = percent <= 0;
+  if (transportVolumeButton.dataset.muted === String(muted)) return;
+  transportVolumeButton.dataset.muted = String(muted);
+  transportVolumeButton.innerHTML = muted ? icons.volumeMuted : icons.volume;
+}
+
+// 单击喇叭 = 静音/取消静音。静音时把当前音量存进 volumeBeforeMute，恢复时用它还原,
+// which is the behaviour the owner asked for. Declared as a function so the preference read
+// at boot can call it before this point in the module.
+function toggleVolumeMute() {
+  const slider = document.querySelector<HTMLInputElement>("#transport-volume");
+  const value = document.querySelector<HTMLElement>("#transport-volume-value");
+  const restingLevel = preferences.volumeBeforeMute > 0 ? preferences.volumeBeforeMute : 0.65;
+  // 判断"是否静音"用 preferences.volume，它是唯一的真实来源。
+  const nextVolume = preferences.volume > 0 ? 0 : restingLevel;
+  if (preferences.volume > 0) preferences.volumeBeforeMute = preferences.volume;
+  preferences.volume = nextVolume;
+  player.setVolume(nextVolume);
+  savePrefs();
+  const percent = Math.round(nextVolume * 100);
+  if (slider) {
+    slider.value = String(percent);
+    slider.style.setProperty("--volume-fill", `${percent}%`);
+  }
+  if (value) value.textContent = `${percent}%`;
+  transportVolumeButton?.setAttribute("aria-label", `音量：${percent}%`);
+  applyVolumeMutedIcon(percent);
+}
+if (transportVolume && transportVolumePanel && transportVolumeSlider && transportVolumeButton) {
+  // 悬停即出、移开即收, as NetEase does — no click, and the slider is vertical. `focusin`
+  // covers the keyboard path (tabbing to the button opens it; blur closes it again), so the
+  // control is not mouse-only. The panel sits inside `.transport-volume`, so moving the
+  // pointer from the button up into the slider keeps the pointer inside and does not close it.
+  // The filled part of the track. One custom property drives the gradient stop; the native
+  // thumb already sits at the value, so both ends agree without any measurement.
+  const syncVolumeFill = () => {
+    const percent = Math.max(0, Math.min(100, Number(transportVolumeSlider.value) || 0));
+    transportVolumeSlider.style.setProperty("--volume-fill", `${percent}%`);
+    applyVolumeMutedIcon(percent);
+  };
+  syncVolumeFill();
+  const setVolumePanel = (open: boolean) => {
+    transportVolumePanel.hidden = !open;
+    transportVolumeButton.setAttribute("aria-expanded", String(open));
+    if (!open) {
+      if (volumeFollowFrame) cancelAnimationFrame(volumeFollowFrame);
+      volumeFollowFrame = 0;
+      return;
+    }
+    if (transportVolumeValue) {
+      transportVolumeValue.textContent = `${Math.round(preferences.volume * 100)}%`;
+    }
+    // The track's filled portion tracks the slider, so the dialled-in volume is readable from
+    // the bar itself rather than only from the readout under it.
+    syncVolumeFill();
+    // Positions AFTER the panel is laid out: measuring while it was still `hidden` returned
+    // offsetWidth 0, so the centring formula degraded to "button centre − 0". The follow loop
+    // then keeps it centred for as long as it is open.
+    positionVolumePanel();
+    if (!volumeFollowFrame) volumeFollowFrame = requestAnimationFrame(followVolumeButton);
+  };
+  // The panel is `position: fixed`, so it is NOT a DOM descendant of `.transport-volume` —
+  // a `pointerleave` on the wrapper fires the moment the pointer enters the panel. The close
+  // decision is therefore made from where the pointer actually is, not from which element
+  // owns it: hovering any of the three live regions keeps the panel up.
+  let closeTimer = 0;
+  // Places the fixed panel just above the speaker, CENTRED on it — a centred chip is what the
+  // owner asked for and what NetEase does (right-aligned, it read as an off-centre chip even
+  // though its right edge matched the button's).
+  // Centred on the last control, the chip can reach past the viewport's right edge, where
+  // `.detail-transport`'s overflow would clip it again — and a clipped chip is also a
+  // dead hover target, which is how the slider first vanished under the owner's cursor. So
+  // the position is centred first and then pulled back on-screen if it overflows.
+  const positionVolumePanel = () => {
+    const buttonRect = transportVolumeButton.getBoundingClientRect();
+    const width = transportVolumePanel.offsetWidth;
+    const height = transportVolumePanel.offsetHeight;
+    const centred = buttonRect.left + buttonRect.width / 2 - width / 2;
+    const maxLeft = Math.max(4, window.innerWidth - width - 4);
+    const left = Math.min(Math.max(4, centred), maxLeft);
+    transportVolumePanel.style.left = `${left}px`;
+    transportVolumePanel.style.right = "auto";
+    transportVolumePanel.style.top = `${Math.max(4, buttonRect.top - height - 8)}px`;
+  };
+  // The speaker is not where it will stay when the panel opens: the detail column is still
+  // settling (the scroll gutter lands a moment after the album opens) and it slides the whole
+  // control row a few pixels sideways. A single measurement therefore lands the chip off
+  // centre — measured, the button's left was 1352.20 when the chip was positioned and 1349.33
+  // by the time the owner looked at it, which is the "偏左了一点点" he reported. ResizeObserver
+  // does NOT help: the button only MOVES, its box never changes size, so no resize event fires.
+  // While the panel is open it therefore follows the button frame by frame. It is one rect read
+  // and two style writes per frame, and it cannot drift.
+  let volumeFollowFrame = 0;
+  const followVolumeButton = () => {
+    if (transportVolumePanel.hidden) { volumeFollowFrame = 0; return; }
+    positionVolumePanel();
+    volumeFollowFrame = requestAnimationFrame(followVolumeButton);
+  };
+  const pointerInVolumeRegion = () => {
+    const hovered = document.querySelectorAll(":hover");
+    if (transportVolume.matches(":hover") || transportVolumePanel.matches(":hover")) return true;
+    // Fixed descendants report `:hover` on their nearest positioned ancestor rather than on
+    // the panel itself in some engines, so check the chain as well as the box.
+    for (const node of hovered) if (transportVolumePanel.contains(node)) return true;
+    return false;
+  };
+  const openVolumePanel = () => {
+    if (closeTimer) { clearTimeout(closeTimer); closeTimer = 0; }
+    setVolumePanel(true);
+  };
+  // 单击喇叭切换静音，拖动滑块调音量 —— 同一个控件要同时支持两种手势，就得把它们分开。
+  // 滑块是拖动用的，所以那里只记录"是否移动过"；按钮上的单击若伴随位移就不算点击。
+  // 滑块由 CDP 驱动时 click 不会触发，这个标记只用于真实指针（含按钮上的抖动）。
+  let volumeDragged = false;
+  let volumeDragStart: { x: number; y: number } | null = null;
+  const noteVolumeDragStart = (event: PointerEvent) => {
+    volumeDragStart = { x: event.clientX, y: event.clientY };
+    volumeDragged = false;
+  };
+  const noteVolumeDragMove = (event: PointerEvent) => {
+    if (!volumeDragStart) return;
+    if (Math.hypot(event.clientX - volumeDragStart.x, event.clientY - volumeDragStart.y) > 4) {
+      volumeDragged = true;
+    }
+  };
+  transportVolumePanel.addEventListener("pointerdown", noteVolumeDragStart);
+  transportVolumePanel.addEventListener("pointermove", noteVolumeDragMove);
+  transportVolumeButton.addEventListener("pointerdown", noteVolumeDragStart);
+  transportVolumeButton.addEventListener("pointermove", noteVolumeDragMove);
+  transportVolumeButton.addEventListener("click", () => {
+    if (volumeDragged) { volumeDragged = false; return; }
+    toggleVolumeMute();
+  });
+  const closeVolumePanelSoon = () => {
+    if (closeTimer) clearTimeout(closeTimer);
+    closeTimer = window.setTimeout(() => {
+      closeTimer = 0;
+      // The delay covers the travel between regions; this check is what makes it correct —
+      // if the pointer arrived anywhere in the volume region, the panel stays.
+      if (!pointerInVolumeRegion()) setVolumePanel(false);
+    }, 200);
+  };
+  transportVolume.addEventListener("pointerenter", openVolumePanel);
+  transportVolume.addEventListener("pointermove", openVolumePanel);
+  transportVolume.addEventListener("pointerleave", closeVolumePanelSoon);
+  // The panel lives outside the wrapper once it is fixed, so it needs its own enter/reopen
+  // handlers — otherwise moving into it counts as "leaving" the control.
+  transportVolumePanel.addEventListener("pointerenter", openVolumePanel);
+  transportVolumePanel.addEventListener("pointermove", openVolumePanel);
+  transportVolumePanel.addEventListener("pointerleave", closeVolumePanelSoon);
+  transportVolumeButton.addEventListener("focus", openVolumePanel);
+  transportVolume.addEventListener("focusout", (event) => {
+    if (!transportVolume.contains(event.relatedTarget as Node | null)) setVolumePanel(false);
+  });
+}
+
 document.addEventListener("input", (e) => {
   const el = e.target as HTMLInputElement;
+  // The control bar's volume slider drives the same preference and player method as the
+  // settings page's, so the two stay in step while this one is dragged.
+  if (el.id === "transport-volume") {
+    const level = Number(el.value) / 100;
+    preferences.volume = level;
+    // Remember the level the user deliberately dialled in, or 取消静音 would restore a stale
+    // value: dial 40% → mute → unmute must come back to 40%, not to whatever was set before.
+    if (level > 0) preferences.volumeBeforeMute = level;
+    player.setVolume(preferences.volume);
+    savePrefs();
+    if (transportVolumeValue) transportVolumeValue.textContent = `${el.value}%`;
+    transportVolumeButton?.setAttribute("aria-label", `音量：${el.value}%`);
+    el.style.setProperty("--volume-fill", `${el.value}%`);
+    applyVolumeMutedIcon(Number(el.value));
+    return;
+  }
   if (el.dataset.quality && el.type === "range") {
     renderQuality = normalizeQuality({
       ...renderQuality,
@@ -2886,9 +4055,22 @@ document.addEventListener("input", (e) => {
   }
   if (el.id === "album-search") renderSearchResults();
   if (el.id === "volume") {
-    preferences.volume = Number(el.value) / 100;
+    const level = Number(el.value) / 100;
+    preferences.volume = level;
+    // 与播放栏的滑块同口径：这里也要记下用户设定的音量，否则从设置页改完再静音会还原成旧值。
+    if (level > 0) preferences.volumeBeforeMute = level;
     player.setVolume(preferences.volume);
     savePrefs();
+    // 设置页改音量后，播放栏的滑块/读数/图标要跟着走（两个控件共用一个偏好）
+    const slider = document.querySelector<HTMLInputElement>("#transport-volume");
+    if (slider) {
+      slider.value = String(Math.round(level * 100));
+      slider.style.setProperty("--volume-fill", `${Math.round(level * 100)}%`);
+    }
+    const readout = document.querySelector<HTMLElement>("#transport-volume-value");
+    if (readout) readout.textContent = `${Math.round(level * 100)}%`;
+    transportVolumeButton?.setAttribute("aria-label", `音量：${Math.round(level * 100)}%`);
+    applyVolumeMutedIcon(Math.round(level * 100));
   }
 });
 document.addEventListener("change", (e) => {
@@ -2930,7 +4112,6 @@ document.addEventListener("change", (e) => {
   }
   if (el.id === "reduced-motion") {
     preferences.reduced = el.checked;
-    transportTitleMotion.setReduced(el.checked);
     if (el.checked) {
       browseTransition.finish();
       detailTransition.finish();
@@ -2951,6 +4132,10 @@ document.addEventListener("keydown", (e) => {
   if (boot?.active) return;
   if (viewer?.isOpen) return;
   if (e.key === "Escape") {
+    // 先关小菜单，再关侧栏，最后才退回专辑架：Esc 的含义随"当前最上层的浮层"递进，
+    // 这样打开菜单时按一次 Esc 不会把整个详情页也一起退掉。
+    if (moreMenuOpen) return closeMoreMenu();
+    if (transportMenuOpen) return closeTransportMenu();
     panel ? closePanel() : setMode("archive");
     return;
   }

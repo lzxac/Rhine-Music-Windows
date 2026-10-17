@@ -32,6 +32,52 @@
 - 服务入口：`scripts/music-server.mjs`（`--port` 或 `PORT`），数据根由环境变量 `MUSIC_DATA_DIR` 决定。
 - 前端与服务的契约：本机 HTTP 接口（曲库、封面、歌词等），服务只监听回环地址。
 
+## 3.1 音频格式与解码
+
+**本项目不做任何音频转码，也没有音频编码器。** `/api/audio/<trackId>` 由 `serveFile()` 用 `createReadStream(...).pipe(response)` 把**原文件字节**直接返回（支持 HTTP Range，所以进度条可拖动）。因此：
+
+- 播放音质 **= 源文件音质**，程序不解码后重编码、不降采样、不改变位深。元数据里的码率/采样率/位深由 `music-metadata` 从文件读出，只用于显示。
+- 能播哪些格式由**运行时的 Chromium/WebView2 解码栈**决定，不由本项目决定；项目只做"能否交给浏览器播"的过滤。
+- 设置页的「画质」预设（`qualityPresets`）是 **3D 渲染参数**（`scale`/`pixelRatio`/`shadows`/`aoSamples` 等），与音频无关，不要混用。
+
+**扩展名集合**（`scripts/music-library.mjs`）：
+
+| 集合 | 用途 | 取值 |
+|---|---|---|
+| `AUDIO_EXTENSIONS` | 扫描入库 | `.flac` `.wav` `.m4a` `.mp4` `.alac` `.dsf` `.dff` `.mp3` `.aac` `.aiff` `.aif` `.ogg` `.opus` |
+| `BROWSER_EXTENSIONS` | 判定 `browserPlayable` | `.flac` `.wav` `.m4a` `.mp4` `.mp3` `.aac` `.ogg` `.opus` |
+
+只入库但不能播的：`.alac`（独立扩展名）、`.dsf`/`.dff`（DSD）、`.aiff`/`.aif`。不可播曲目在 UI 上禁用，播放时的提示见 `src/music-player.ts` 的 `unsupported()`。
+
+**实测解码能力**（Edge/WebView2 Chromium 155，2026-10-15 实测；方法见下）：
+
+| 格式 | `canPlayType` | 真实解码（`decodeAudioData`） | `<audio>` 读到时长的 |
+|---|---|---|---|
+| MP3 | probably | ✅ | ✅ |
+| AAC / M4A(AAC-LC) | probably | 未单独构造样本，依赖同一解码栈 | — |
+| FLAC | probably | ✅ 48000Hz / 1ch / 12.272s（真实样本） | ✅ 12.272 |
+| WAV (PCM) | probably | ✅ 48000Hz / 2ch / 0.5s（自制样本） | ✅ 0.5 |
+| OGG Vorbis | probably | ✅ 48000Hz / 2ch / 53.333s | ✅ 53.336 |
+| OGG / WebM Opus | probably | 同栈 | — |
+| **M4A / ALAC** | **不支持** | — | — |
+| **AIFF** | **不支持** | ❌ `Unable to decode audio data` | ❌ 错误码 4 |
+| **DSD (DSF/DFF)** | **不支持** | — | — |
+| WMA / AC-3 / AMR | 不支持 | — | — |
+
+> 结论：无损可播到 **FLAC / WAV / ALAC-in-M4A**；有损可播 MP3 / AAC / Vorbis / Opus；**DSD 与 AIFF 不可播**。
+> 采样率与位深的上限由 Chromium 的解码器决定，本项目不设限也不改写。
+
+**验证方法**（可复现）。两个探针在**验证脚手架目录** `_verify/css-diff/`（与仓库同级的开发工作区目录，按 `DEVELOPMENT.md` 的既有约定存放，属于本项目的验证工具而非仓库内代码）：
+
+```powershell
+node _verify/css-diff/codec-support-probe.mjs    # 让运行中的解码器自报 canPlayType 能力
+node _verify/css-diff/decode-support-probe.mjs   # 把真实文件交给 decodeAudioData 与 <audio> 实解
+```
+
+`decode-support-probe.mjs` 的 WAV/AIFF 样本由同目录的 `make-audio-fixtures.py` 生成（标准库 + numpy，无音频库依赖）；FLAC 需要一个真实样本，**该第三方样本不随脚手架保存**，探头在缺失时会跳过该项（取回方法见脚本头部注释）。
+
+**不要只凭 `canPlayType` 下结论**——AIFF 在 `canPlayType` 与实解上一致为不支持，但两者并不总是等价。
+
 ## 4. 生成器边界
 
 **由生成器产出、不得手改的文件**：

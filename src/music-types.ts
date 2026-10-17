@@ -40,6 +40,14 @@ export interface MusicPlaylist {
   tracks: PlaylistTrack[];
 }
 
+/** 本机听后感：按曲目保存，只存在这台机器上（应用数据目录的 comments.json）。 */
+export interface ListeningComment {
+  id: string;
+  text: string;
+  /** ISO 时间戳，由服务端写入。 */
+  createdAt: string;
+}
+
 export interface MusicProducer {
   name: string;
   role: string;

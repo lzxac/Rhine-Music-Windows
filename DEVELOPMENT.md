@@ -248,6 +248,15 @@ git merge main
     - **只作用于歌词行**，不要写「让整个面板居中」：收起卡片是靠 `.lyrics-band` 的 `text-align: right` 靠右的，面板层级的 `text-align` 会把它一起改掉。
     - 按钮显示的是**将要切换到的**模式字形（`≡` 左对齐 / `☰` 居中），不是当前模式。
     验证脚手架：`_verify/css-diff/lyric-align.mjs`（模式切换、实际居中量测、收起态是否受影响、刷新后是否沿用）。
+20. **音频格式支持：本项目不转码，播放能力由运行时的 Chromium/WebView2 解码栈决定。**
+    `/api/audio/<id>` 是 `createReadStream(...).pipe(response)` 的**原样字节**返回（带 Range，所以进度条能拖）；
+    元数据里的码率/采样率/位深只是 `music-metadata` 从文件读出的显示值，**不是"音质档位"**（设置页的 `qualityPresets` 是 3D 渲染参数，别混）。
+    扫描入库认 13 种扩展名（`AUDIO_EXTENSIONS`），其中 8 种可播（`BROWSER_EXTENSIONS`，决定 `browserPlayable`）；
+    **`.dsf`/`.dff`(DSD)、`.aiff`/`.aif`、独立 `.alac` 只入库不能播**，播放时提示见 `src/music-player.ts` 的 `unsupported()`。
+    验证脚手架：`_verify/css-diff/codec-support-probe.mjs`（让运行中的解码器自报 `canPlayType`）、
+    `decode-support-probe.mjs`（把真实文件交给 `decodeAudioData` 与 `<audio>` **实解**，这才是可信判据 ——
+    `canPlayType` 只是声明）。WAV/AIFF 样本用同目录 `make-audio-fixtures.py` 现造；FLAC 需要真实样本且**不入库**，缺失时跳过。
+    实测结论（Edge/WebView2 Chromium 155）：FLAC / WAV / OGG / MP3 实解通过；**AIFF 实解失败**（`Unable to decode audio data`，`<audio>` 报错码 4）。
 
 ### 版本与提交
 
