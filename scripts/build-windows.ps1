@@ -222,6 +222,28 @@ try {
     Write-Host "Win32 file version: $($versionInfo.FileVersion); product version: $($versionInfo.ProductVersion)"
     Write-Host "SHA-256: $exeHash"
     Write-Host "Manifest: $releaseManifestPath"
+    # 清掉这个版本的运行时负载缓存。
+    #
+    # 启动器只要看到 `%LOCALAPPDATA%\Rhine Music\app-v<version>\.payload-ready` 与几个关键文件就
+    # 直接复用已解出的负载，**从不比较内容**。所以同一版本号重新打包后，旧缓存会让新 EXE 继续
+    # 跑旧页面 —— 2026-10-17 就是这样：把"双击最大化"的修复重新打进 dev.16 之后，老板装了本地和
+    # 从 GitHub 新下的两份都"完全无效"，实际跑的是 18:43 首次运行解出的旧包。
+    # 这一步以前写在发布说明里当"手工步骤"，靠人记；现在放进构建里，删不掉就不算成功构建。
+    $payloadCache = Join-Path $env:LOCALAPPDATA "Rhine Music\app-v$($versionState.version)"
+    if (Test-Path -LiteralPath $payloadCache) {
+      $safeCacheRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Rhine Music')).TrimEnd('\') + '\'
+      $resolvedCache = [IO.Path]::GetFullPath($payloadCache)
+      if ($resolvedCache.StartsWith($safeCacheRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        try {
+          Remove-Item -LiteralPath $resolvedCache -Recurse -Force -ErrorAction Stop
+          Write-Host "Cleared runtime payload cache: $resolvedCache"
+        } catch {
+          # 程序正开着时缓存会被占用。这不该让构建失败（包已经产出了），但必须喊出来，
+          # 否则下一次运行又会静默地跑旧页面。
+          Write-Warning "Could not clear the runtime payload cache at '$resolvedCache' ($($_.Exception.Message)). Close the app and delete that folder, or the launcher will keep serving the previous payload."
+        }
+      }
+    }
     $buildSucceeded = $true
   } finally {
     Pop-Location
