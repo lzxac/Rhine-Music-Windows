@@ -1263,6 +1263,9 @@ async function receiveLibrary(next: MusicLibrary, force = false) {
 async function applyLibrary() {
   const hadAlbums = albums.length > 0;
   const previousId = currentAlbum()?.id;
+  // 重建前先记住"上一张专辑所在的列名"：合作专辑在 records 里有多条（每位歌手一条），
+  // 重建后若只按专辑 id 全库查找，会取到最早的那一条 —— 于是选中的专辑跳到别的列去了。
+  const previousLaneName = ready ? archiveColumns[fileLocation(selected).lane] : undefined;
   const previousDetail = JSON.stringify(currentAlbum());
   const visualKey = (items: MusicAlbum[], groups: MusicGenre[]) =>
     JSON.stringify([
@@ -1290,10 +1293,7 @@ async function applyLibrary() {
   albums = orderMusicAlbums(demo ? visualSamples : library.albums, preferences.sortMode);
   genres = demo ? demoGenres : library.genres;
   setMusicAlbums(albums, genres, preferences.sortMode);
-  selected = Math.max(
-    0,
-    records.findIndex((r) => r.id === previousId),
-  );
+  selected = Math.max(0, recordIndexNear(previousLaneName, previousId));
   columnMemory = new Map(
     archiveColumns.map((name, lane) => [
       name,
@@ -1499,7 +1499,8 @@ function revealAlbum(albumId: string, trackId?: string, options: { reuseOpenAlbu
   closePanel(() => {
     cancelTrackReveal();
     if (!ready || boot?.active) return;
-    const index = records.findIndex((record) => record.id === albumId);
+    // 优先跳到"当前列里的那一条"：合作专辑有多条记录，全库查找会落到最早的一条（另一列）。
+    const index = recordIndexNear(ready ? archiveColumns[fileLocation(selected).lane] : undefined, albumId);
     const album = albums.find((item) => item.id === albumId);
     if (index < 0 || !album || (trackId && !album.tracks.some((track) => track.id === trackId))) {
       notify("这张专辑或歌曲已不在当前音乐库中，请刷新音乐库后重试。");
@@ -1537,15 +1538,36 @@ function stepAlbum(direction: number) {
       direction,
     });
 }
+/**
+ * 按专辑 id 定位 records 索引，**优先返回 `laneName` 那一列里的那一条**。
+ *
+ * 合作专辑会为每位参与歌手各生成一条记录（同一个专辑 id 在 records 里出现多次），所以直接
+ * `records.findIndex((r) => r.id === albumId)` 拿到的是**最早的一条** —— 那是另一列的位置。
+ * 这在"左右换列"和"重建后恢复选中"两处都表现为"跳到不相干的专辑"（实测出现过 45 → 01）。
+ */
+function recordIndexNear(laneName: string | null | undefined, albumId: string | null | undefined) {
+  if (!albumId) return -1;
+  if (laneName) {
+    const lane = archiveColumns.indexOf(laneName);
+    if (lane >= 0) {
+      const hit = columnFiles(lane).find((index) => records[index]?.id === albumId);
+      if (hit !== undefined) return hit;
+    }
+  }
+  return records.findIndex((record) => record.id === albumId);
+}
 function stepGenre(direction: number) {
   if (!records.length || archiveColumns.length < 2) return;
   const lane = wrap(
     fileLocation(navigationSelection()).lane + direction,
     archiveColumns.length,
   );
+  const files = columnFiles(lane);
+  if (!files.length) return;
   const remembered = columnMemory.get(archiveColumns[lane]);
-  const index = records.findIndex((r) => r.id === remembered);
-  select(index >= 0 ? index : columnFiles(lane)[0], {
+  // 只在该列内部找"记住的那张专辑"。
+  const index = files.find((candidate) => records[candidate]?.id === remembered);
+  select(index ?? files[0], {
     axis: "lane",
     direction,
   });

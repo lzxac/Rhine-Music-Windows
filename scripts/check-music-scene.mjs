@@ -94,6 +94,13 @@ const musicPlayerSource = await readFile(new URL('../src/music-player.ts', impor
 const themeSwitchSource = await readFile(new URL('../src/music-theme-switch.css', import.meta.url), 'utf8');
 const librarySource = await readFile(new URL('../scripts/music-library.mjs', import.meta.url), 'utf8');
 const musicServerSource = await readFile(new URL('../scripts/music-server.mjs', import.meta.url), 'utf8');
+// 换列时"记住的那张专辑"必须**在本列内部**定位。合作专辑在 records 里有多条（每位参与歌手
+// 一条），全库 `records.findIndex(r => r.id === remembered)` 会拿到最早的一条 —— 也就是另一列，
+// 表现为左右换列时乱跳（实测：按 → 六次都停在同一个歌手，按 ← 跳到完全不相干的人）。
+assert.ok(/function stepGenre\([\s\S]{0,700}?const files = columnFiles\(lane\);[\s\S]{0,300}?files\.find\(/.test(musicAppSource), 'stepping between artist columns must resolve the remembered album inside the target lane');
+assert.ok(!/function stepGenre\([\s\S]{0,600}?records\.findIndex\(/.test(musicAppSource), 'the column step must never look the album up across the whole library');
+// 重建音乐库后恢复选中也是同理（按歌手排列时同一专辑有多条记录）。
+assert.ok(/function recordIndexNear\(/.test(musicAppSource) && /selected = Math\.max\(0, recordIndexNear\(/.test(musicAppSource), 'restoring the selection after a rebuild must prefer the lane it was in');
 const commentsSource = await readFile(new URL('../scripts/comments.mjs', import.meta.url), 'utf8');
 assert.ok(sceneSource.includes('this.light.shadow.camera.layers.enable(1)'), 'the shadow camera must include the shadow-only layer');
 assert.ok(sceneSource.includes('shadowOnly.layers.set(1)'), 'off-camera casters must not enter the main camera layer');
