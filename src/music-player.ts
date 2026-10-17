@@ -90,7 +90,9 @@ export class MusicPlayer {
       loading: false,
       duration: 0,
       currentTime: 0,
-      volume: Number.isFinite(options.volume) ? unit(options.volume!) : 0.7,
+      // 兜底值与设置里的默认值保持一致（100%）：早先是 0.7，与偏好默认值 0.65 又不一致，
+      // 属于"三处各写一个数"的历史遗留。真正生效的永远是调用方传入的 preferences.volume。
+      volume: Number.isFinite(options.volume) ? unit(options.volume!) : 1,
       songFadeEnabled: options.songFadeEnabled ?? true,
       bgmVolume: Number.isFinite(options.bgmVolume)
         ? unit(options.bgmVolume!)

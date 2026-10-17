@@ -140,16 +140,22 @@ const preferences = {
     // Bumped when the default render quality changes, so an untouched old default is
     // migrated once instead of being treated as a deliberate choice.
     qualityRevision: 1,
+    // 与 qualityRevision 同一个用途：音量滑块的默认值从 65% / 22% 改成 100% 之后，
+    // 把"还停在旧默认值"的存档一次性迁移过去 —— 否则只有全新安装才会变，已经存过值的
+    // 安装（包括老板自己的那套）会一直停在 65%，看起来像没改。
+    volumeRevision: 1,
     reduced: false,
-    volume: 0.65,
+    // 音量滑块的默认值都是 **100%**：让"滑块拉满"等于"真的最大"，否则用户会以为当前就是上限。
+    // 觉得大再自己调小。BGM 是氛围声（专辑开始前淡出、停止后淡入），刻意保持很低，不属于同一口径。
+    volume: 1,
     // 静音前的音量。单击喇叭切换静音；恢复时回到这个值, as NetEase does. Kept in the
     // preferences so a reload while muted still restores the level the user had chosen.
-    volumeBeforeMute: 0.65,
+    volumeBeforeMute: 1,
     songFade: true,
     bgm: true,
     bgmVolume: 0.18,
     sound: true,
-    soundVolume: 0.22,
+    soundVolume: 1,
     renderQuality: undefined as RenderQuality | undefined,
     // Multiplier on the lyric text, kept as an index so the steps are the ones
     // listed in LYRIC_SIZES rather than an arbitrary slider value.
@@ -281,6 +287,17 @@ if ((preferences.qualityRevision ?? 1) < QUALITY_REVISION) {
     preferences.quality = "original";
     preferences.renderQuality = undefined;
   }
+  save("rhine-music-preferences", preferences);
+}
+// 音量默认值从 65% / 22% 改成 100%（见上面的 defaults）。改默认只对全新安装生效，已存过值的
+// 安装会一直停在旧值 —— 而那正好是"看起来没改"的样子。所以照 qualityRevision 的做法做一次性迁移：
+// **只有仍然精确等于旧默认值**的项才被抬到 100%，用户自己调过的其它值一律不动。
+const VOLUME_REVISION = 2;
+if ((preferences.volumeRevision ?? 1) < VOLUME_REVISION) {
+  preferences.volumeRevision = VOLUME_REVISION;
+  if (preferences.volume === 0.65) preferences.volume = 1;
+  if (preferences.volumeBeforeMute === 0.65) preferences.volumeBeforeMute = 1;
+  if (preferences.soundVolume === 0.22) preferences.soundVolume = 1;
   save("rhine-music-preferences", preferences);
 }
 let renderQuality = normalizeQuality(
@@ -3882,7 +3899,7 @@ function applyVolumeMutedIcon(percent: number) {
 function toggleVolumeMute() {
   const slider = document.querySelector<HTMLInputElement>("#transport-volume");
   const value = document.querySelector<HTMLElement>("#transport-volume-value");
-  const restingLevel = preferences.volumeBeforeMute > 0 ? preferences.volumeBeforeMute : 0.65;
+  const restingLevel = preferences.volumeBeforeMute > 0 ? preferences.volumeBeforeMute : 1;
   // 判断"是否静音"用 preferences.volume，它是唯一的真实来源。
   const nextVolume = preferences.volume > 0 ? 0 : restingLevel;
   if (preferences.volume > 0) preferences.volumeBeforeMute = preferences.volume;

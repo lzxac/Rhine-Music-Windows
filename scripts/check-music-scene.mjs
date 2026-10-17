@@ -270,6 +270,12 @@ assert.ok(musicAppSource.includes('id="transport-format"'), 'the right side must
 assert.ok(musicAppSource.includes('data-action="add-to-playlist" id="transport-add-playlist"'), 'the right side must carry add-to-playlist');
 assert.ok(musicAppSource.includes('id="transport-volume-button"') && musicAppSource.includes('id="transport-volume" min=') && musicAppSource.indexOf('id="transport-volume-button"') < musicAppSource.indexOf('id="transport-volume" min='), 'volume must be a button that opens a slider — the agreed shape');
 assert.ok(musicAppSource.includes('player.setVolume(preferences.volume);'), 'the volume sliders must drive the player through the stored preference, not a private value');
+// 音量滑块默认 100%：拉满必须等于真的最大，否则用户会以为当前状态就是上限。BGM 是氛围声，
+// 刻意保持很低，不在同一口径里。默认值改动必须带一次性迁移（volumeRevision），否则已存过值的
+// 安装会一直停在旧值 —— 那看起来就跟"没改"一样。
+assert.ok(/volume: 1,/.test(musicAppSource) && /soundVolume: 1,/.test(musicAppSource), 'song and effect volume must default to 100%');
+assert.ok(/bgmVolume: 0\.18,/.test(musicAppSource), 'the ambient BGM volume keeps its own, deliberately low default');
+assert.ok(/const VOLUME_REVISION = 2;[\s\S]{0,400}?preferences\.volume === 0\.65[\s\S]{0,200}?preferences\.soundVolume === 0\.22/.test(musicAppSource), 'a restart must migrate an untouched old default to 100%, matching only the exact old values');
 // Both volume controls in the app (the transport chip and the settings page) must write the
 // SAME preference and remember the pre-mute level, or muting from one of them would restore a
 // stale value set by the other. Counted rather than text-matched, so a renamed local such as
