@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import { setMusicAlbums, records, archiveColumns, columnFiles, fileAtSlot, fileLocation } from '../src/data.ts';
+import { splitMusicArtists } from '../src/music-order.ts';
 import { fileAtCell, selectionCell, visibleCell, cellKey, LOOP_COLUMNS, LOOP_ROWS, wrap } from '../src/archive-loop.ts';
 import { CoverAtlas, containCover } from '../src/cover-atlas.ts';
 
@@ -38,6 +39,53 @@ assert.equal(records.length, 0);
 assert.equal(fileAtCell({ lane: -1, row: -1 }), -1);
 assert.equal(fileAtSlot(12), -1);
 assert.ok(Object.values(selectionCell(0, { lane: 0, row: 12 })).every(Number.isFinite));
+
+// ── 按歌手名字：合作专辑在每位参与歌手的列里各出现一次 ──────────────────────────
+// 分隔符只认半角 `/`。`&` 常常是组合名的一部分（这张库里就有 `Lucas & Steve`），切了会把
+// 一个乐队变成两个人；`多位艺人` 之类的哨兵值代表"很多人"，拆开只会得到无意义的列。
+assert.deepEqual(splitMusicArtists('林俊杰/周杰伦'), ['林俊杰', '周杰伦']);
+assert.deepEqual(splitMusicArtists('Steve Aoki/林俊杰/Lucas & Steve'), ['Steve Aoki', '林俊杰', 'Lucas & Steve'], '& must never split a band name');
+assert.deepEqual(splitMusicArtists('多位艺人'), ['多位艺人'], 'a "various artists" sentinel must stay one column');
+assert.deepEqual(splitMusicArtists('未知艺术家'), ['未知艺术家']);
+assert.deepEqual(splitMusicArtists('林俊杰/林俊杰'), ['林俊杰'], 'a repeated name collapses to one');
+{
+  const makeAlbum = (title, artist) => ({
+    id: `album-${title}`, title, artist, genreId: 'g', rawGenres: [], folder: `/${title}`,
+    tracks: [{ id: `track-${title}`, title, artist, albumId: `album-${title}`, duration: 60, format: 'FLAC', codec: 'FLAC', browserPlayable: true, audioUrl: '', relativePath: `${title}.flac` }],
+    producers: [], offline: false,
+  });
+  const fixture = [
+    makeAlbum('独唱甲', '甲'),
+    makeAlbum('独唱乙', '乙'),
+    makeAlbum('合作丙', '甲/乙/丙'),
+  ];
+  setMusicAlbums(fixture, [{ id: 'g', name: '流派' }], 'artist');
+  const laneOf = (name) => {
+    const lane = archiveColumns.indexOf(name);
+    return lane < 0 ? null : columnFiles(lane).map((index) => records[index].album.title);
+  };
+  // 列内按专辑名（拼音序）排序：独(dú) < 合(hé) < 独…，所以甲乙两列的顺序不同。
+  assert.deepEqual(laneOf('甲'), ['独唱甲', '合作丙'], 'the collaboration must appear under 甲');
+  assert.deepEqual(laneOf('乙'), ['独唱乙', '合作丙'], 'the collaboration must appear under 乙');
+  assert.deepEqual(laneOf('丙'), ['合作丙'], 'an artist who only features in one album still gets a column of their own');
+  assert.equal(records.length, 5, 'one shelf position per (album, artist) pair');
+  // 每个歌手列内部不能出现同一张专辑两次
+  archiveColumns.forEach((_, lane) => {
+    const ids = columnFiles(lane).map((index) => records[index].album.id);
+    assert.equal(new Set(ids).size, ids.length, 'a lane must not list the same album twice');
+  });
+  // 每个位置都能定位回自己所在的列（展开成独立条目后索引唯一）
+  records.forEach((_, index) => {
+    const location = fileLocation(index);
+    assert.ok(columnFiles(location.lane).includes(index));
+  });
+  // 其它两种排列不受影响：位置总数必须等于专辑数（不展开、不重复）
+  for (const mode of ['genre', 'album']) {
+    setMusicAlbums(fixture, [{ id: 'g', name: '流派' }], mode);
+    assert.equal(archiveColumns.reduce((total, _, lane) => total + columnFiles(lane).length, 0), fixture.length, `${mode} ordering must not duplicate albums`);
+  }
+}
+setMusicAlbums([], []);
 const sceneSource = await readFile(new URL('../src/scene.ts', import.meta.url), 'utf8');
 const atlasSource = await readFile(new URL('../src/cover-atlas.ts', import.meta.url), 'utf8');
 const musicAppSource = await readFile(new URL('../src/music-app.ts', import.meta.url), 'utf8');
